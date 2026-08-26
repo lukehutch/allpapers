@@ -1,6 +1,8 @@
 # allpapers
 
-A Claude Code skill for finding and retrieving the full text of scientific papers.
+An agent skill for finding and retrieving the full text of scientific papers.
+It installs into Claude Code, the Codex CLI and Antigravity (`agy`) — see
+[Install](#install).
 
 It merges the older `paperclip` and `scihub-cli` skills, adds CORE and Unpaywall,
 adds arXiv LaTeX source retrieval, and arranges every source into one priority
@@ -40,11 +42,95 @@ layer is the worst case of all and needs reading by eye.
 
 ## Install
 
+The skill is a single directory with a `SKILL.md` at the top. Claude Code, the
+Codex CLI and Antigravity all load skills the same way and all three follow a
+symlink, so one checkout can serve every agent you use and a single `git pull`
+updates all of them.
+
 ```bash
-git clone <this repo> ~/Work/allpapers
-ln -s ~/Work/allpapers ~/.claude/skills/allpapers
+git clone https://github.com/lukehutch/allpapers.git ~/Work/allpapers
+```
+
+| Agent | Skills directory | Link it in |
+|---|---|---|
+| **Claude Code** | `~/.claude/skills/` | `ln -s ~/Work/allpapers ~/.claude/skills/allpapers` |
+| **Codex CLI** | `$CODEX_HOME/skills/`, i.e. `~/.codex/skills/` | `ln -s ~/Work/allpapers ~/.codex/skills/allpapers` |
+| **Antigravity** (`agy`) | `~/.gemini/skills/` | `ln -s ~/Work/allpapers ~/.gemini/skills/allpapers` |
+
+All three at once:
+
+```bash
+for d in ~/.claude/skills ~/.codex/skills ~/.gemini/skills; do
+  mkdir -p "$d" && ln -sfn ~/Work/allpapers "$d/allpapers"
+done
 ~/Work/allpapers/scripts/allpapers-setup          # asks once for what it needs
 ```
+
+Prefer a copy to a symlink? `cp -r ~/Work/allpapers ~/.codex/skills/allpapers`
+works just as well; you then update each copy yourself.
+
+Each agent picks the skill up on its next run — none of them need a restart
+beyond starting a fresh session.
+
+### How those three paths were established
+
+Not by convention — measured on this machine on 2026-08-26, because a wrong
+directory fails silently:
+
+- **Codex.** Its own preinstalled `skill-installer` skill states: *"Installs into
+  `$CODEX_HOME/skills/<skill-name>` (defaults to `~/.codex/skills`)"*, and
+  `$CODEX_HOME/skills/` appears as a path template in the binary. Confirmed end
+  to end: after linking, `codex exec "list your available skills"` printed
+  `allpapers` alongside the built-ins. Codex has no `skills` subcommand — the
+  directory *is* the interface.
+- **Antigravity.** `strace` on a real `agy -p` run shows it opening
+  `~/.gemini/skills/allpapers/SKILL.md` — through the symlink. Its own built-ins
+  live in `~/.gemini/antigravity-cli/builtin/skills/`, and it also probes
+  `~/.gemini/antigravity-cli/skills` and `~/.gemini/config/skills{,.json,.txt}`.
+  Note the directory is `~/.gemini/`, not `~/.antigravity/`: that second one
+  holds only the VS Code-style editor config.
+- **Claude Code.** `~/.claude/skills/` — the documented location.
+
+### Replacing the older paperclip and scihub-cli skills
+
+allpapers supersedes both. Keeping them installed alongside it is not harmful but
+it does put three overlapping skill descriptions in front of the model, which
+makes the choice between them arbitrary. Remove them:
+
+```bash
+rm -rf ~/.claude/skills/paperclip  ~/.claude/skills/scihub-cli \
+       ~/.codex/skills/paperclip   ~/.codex/skills/scihub-cli \
+       ~/.gemini/skills/paperclip  ~/.gemini/skills/scihub-cli \
+       ~/.agents/skills/paperclip  ~/.agents/skills/scihub-cli
+```
+
+`~/.agents/skills/` is a shared cross-tool location some installers also write
+to, which is why it is in the list.
+
+Removing the *skill* does not remove the *tool*: `paperclip` and `scihub-cli`
+stay on your PATH and allpapers keeps calling both. Only the competing
+instructions go away.
+
+One thing to know: **`paperclip update` regenerates its own skill file**, so it
+will recreate `~/.claude/skills/paperclip/` and `~/.agents/skills/paperclip/`.
+Re-run the removal after updating paperclip if you want it gone for good.
+
+### Running `agy` from a script
+
+`agy` asks gnome-keyring for its stored credentials, and on a desktop session the
+unlock dialog takes the terminal — the command then blocks with no output and no
+prompt. Presenting the session as a remote login with no display makes it use its
+own token store instead:
+
+```bash
+export DISPLAY=""
+export SSH_CLIENT="127.0.0.1 12345 22"
+export SSH_TTY="/dev/pts/0"
+agy
+```
+
+`allpapers-search` sets those three itself whenever it shells out to `agy`, so
+this matters only when you run `agy` by hand.
 
 ## Configuration
 
@@ -73,29 +159,59 @@ they are printed or written to `bib.md`.
 
 ### What `--check` tells you
 
-Each credential reports `OK`, `set`, or `MISSING` with the reason it is worth
-having and a link to get it. Exit 0 means everything essential is present; exit 1
-means the email address — the one required value — is missing.
+Every credential reports `set` or `MISSING`, which services use it and whether
+they require it, and where to register for one — for the ones you already have
+as well as the ones you do not, so the output doubles as the sign-up list. It
+closes with the services that need no key at all. Exit 0 means everything
+essential is present; exit 1 means the email address — the one required value —
+is missing.
 
 ```
 paperclip                 : OK (logged in; paperclip, version 0.7.38)
 email                     : set (required)
-core_api_key              : set (optional)
-openalex_api_key          : MISSING (optional) — OpenAlex's cached full text ...
-                            get it: https://openalex.org/users  (free, instant)
+                            used by: Unpaywall: required. OpenAlex, Crossref: optional, but joins their polite pools. scihub-cli: reuses it for Unpaywall
+                            register: no registration — any address you own. https://unpaywall.org/products/api documents the requirement
+openalex_api_key          : MISSING (optional)
+                            used by: OpenAlex: optional; required for its cached full text
+                            unlocks: OpenAlex's cached full text (GROBID TEI XML for ~49M works, $0.01/file) ...
+                            register: https://openalex.org/users  (free, instant)
+...
+No key or registration needed for:
+  paperclip              browser sign-in on first use; free tier, then https://paperclip.gxl.ai/keys
+  arXiv                  no key, no registration
+  Crossref               no key; the email above joins the polite pool
+  ...
 ```
+
+Running `allpapers-setup` with no arguments prints the same catalogue and prompts
+only for what is still missing.
 
 Everything works without the optional keys, just less well.
 
-| Setting | Env var | Cost | What it buys |
-|---|---|---|---|
-| `email` | `ALLPAPERS_EMAIL` | — | **Required.** Unpaywall rejects requests without one; also the OpenAlex and Crossref polite pools |
-| `core_api_key` | `CORE_API_KEY` | free, instant | CORE full text — **verified**: with a key, records return real text (38,460 and 68,513 characters in one test); anonymous returns the literal string `"Not available for public API users."`. Raises the quota from 100 to **1,000 tokens/day** — see the tier table below |
-| `openalex_api_key` | `OPENALEX_API_KEY` | free, instant | OpenAlex's cached GROBID TEI XML (~49M works, $0.01/file) and a $1/day metadata budget instead of the anonymous $0.10/day |
-| `gemini_api_key` | `GEMINI_API_KEY` | free tier | Grounded web search — real Google Search queries returning answers with citations, reaching papers a plain web search misses |
-| `ncbi_api_key` | `NCBI_API_KEY` | free | NCBI eutils at 10 requests/sec instead of 3. The anonymous limit is enforced and returns HTTP 429 mid-sequence, which reads as a lookup failure rather than a rate limit |
-| `semantic_scholar_api_key` | `SEMANTIC_SCHOLAR_API_KEY` | free | Higher Semantic Scholar rate limits |
-| `serpapi_key` | `SERPAPI_KEY` | paid | Google Scholar via SerpApi instead of scraping. Only worth it if Scholar blocks and the paper matters |
+| Setting | Used by | Cost | Where to register | What it buys |
+|---|---|---|---|---|
+| `email` | **Unpaywall: required.** OpenAlex, Crossref: optional, joins their polite pools. scihub-cli reuses it | — | No registration — any address you own. The requirement is documented at <https://unpaywall.org/products/api> | Unpaywall answers at all; politer treatment from OpenAlex and Crossref |
+| `core_api_key` | **CORE: optional**, but anonymous CORE returns no full text | free, instant | <https://core.ac.uk/services/api#form> | CORE full text — **verified**: with a key, records return real text (38,460 and 68,513 characters in one test); anonymous returns the literal string `"Not available for public API users."`. Raises the quota from 100 to **1,000 tokens/day** — see the tier table below |
+| `openalex_api_key` | **OpenAlex: optional**; required for its cached full text | free, instant | <https://openalex.org/users> | OpenAlex's cached GROBID TEI XML (~49M works, $0.01/file) and a $1/day metadata budget instead of the anonymous $0.10/day |
+| `gemini_api_key` | **Gemini grounded search: required for the `api` backend.** Not needed for the `agy` backend | free tier | <https://aistudio.google.com/apikey> | Grounded web search — real Google Search queries returning answers with citations, reaching papers a plain web search misses |
+| `ncbi_api_key` | **PubMed, PMC, NCBI eutils: optional**, raises the rate limit | free | <https://account.ncbi.nlm.nih.gov/> → Account settings → API Key Management | NCBI eutils at 10 requests/sec instead of 3. The anonymous limit is enforced and returns HTTP 429 mid-sequence, which reads as a lookup failure rather than a rate limit |
+| `semantic_scholar_api_key` | **Semantic Scholar: optional**, raises the shared-pool rate limit | free, but manually reviewed — expect a wait | <https://www.semanticscholar.org/product/api#api-key> | Higher Semantic Scholar rate limits |
+| `serpapi_key` | **Google Scholar: optional**; without it Scholar is scraped and will eventually serve a CAPTCHA | 100 free searches/month, then paid | <https://serpapi.com/users/sign_up>, key at <https://serpapi.com/manage-api-key> | Google Scholar via SerpApi instead of scraping. Only worth it if Scholar blocks and the paper matters |
+
+Any setting can also be given as an environment variable: **the setting name in
+upper case** — `CORE_API_KEY`, `GEMINI_API_KEY`, `SERPAPI_KEY` and so on. The one
+exception is `email`, whose variable is `ALLPAPERS_EMAIL` rather than `EMAIL`, to
+avoid colliding with the shell variable of that name. The environment overrides
+the config file.
+
+These services need no key and no registration at all: **arXiv**, **Crossref**
+(the email above just joins the polite pool), **Europe PMC**, **DataCite** and
+**OpenAIRE**, **LibGen** (`json.php` is open), **Sci-Hub**, and **Anna's Archive**
+for the `/dyn/` JSON endpoints — a donor account at
+<https://annas-archive.org/donate> unlocks fast downloads but nothing here needs
+it. **paperclip** signs in through the browser on first use rather than taking a
+key, and only needs one from <https://paperclip.gxl.ai/keys> if you exhaust the
+free tier.
 
 ### CORE's tiers — a key is not the whole story
 
@@ -141,10 +257,10 @@ Seven tools plus a set of reference documents:
 |---|---|
 | `scripts/allpapers-setup` | First-run credential setup and status check. Asks once, stores in `~/.config/allpapers/config.json`. |
 | `scripts/allpapers-locate` | Queries paperclip, arXiv, Unpaywall, OpenAlex, CORE and Europe PMC **concurrently** for one paper and prints every free full-text location, ranked most-parseable first. |
-| `scripts/allpapers-search` | Keyword (BM25), semantic (vector), hybrid and analogical search over paperclip's 11.6M full texts, optionally alongside Gemini grounded web search. |
+| `scripts/allpapers-search` | Keyword (BM25), semantic (vector), hybrid and analogical search over paperclip's 11.6M full texts, optionally alongside Gemini grounded web search — through the Gemini API or, with `--gemini-backend agy`, through the Antigravity CLI and no API key. |
 | `scripts/arxiv-source` | Downloads an arXiv paper's submitted source into a `mktemp` directory and unpacks it, handling all three payload shapes arXiv serves. |
 | `scripts/allpapers-bibtex` | Builds one composite BibTeX entry by merging INSPIRE-HEP, Crossref, DataCite, arXiv, PubMed and Scholar field by field, then normalising it. |
-| `scripts/allpapers-fetch` | Fetches source *and* PDF into `verification/source/<citationKey>/`, and writes the `verification/bib.md` record — staged first, promoted or rejected after you have read the paper. |
+| `scripts/allpapers-fetch` | Fetches source *and* PDF into `./verification/source/<citationKey>/` in the current directory, and writes the `./verification/bib.md` record — staged first, promoted or rejected after you have read the paper. `--into` moves that directory, `--no-record` suppresses it entirely. |
 | `scripts/allpapers-mirrors` | Checks which shadow-library mirrors are usable right now by verifying **content and final hostname**, not the status code, and can print what open-slum.org reports alongside. |
 
 `reference/ladder.md` is the decision procedure the skill follows; the other
@@ -339,6 +455,47 @@ each claim with its verbatim quote and locator. A rejection writes the same reco
 minus the files, so the next reader knows the paper was examined and why it was
 declined — which is worth as much as an inclusion and stops the dead end being
 re-explored.
+
+#### Where `verification/` is created, and how to move or silence it
+
+**It is created in the current working directory**, as `./verification/`, the
+first time a paper is kept, rejected or retired — so run `allpapers-fetch` from
+the root of the paper or repository the record belongs to. Nothing is written
+before then: a plain lookup, a search, or a `--stage` run touches only a temp
+directory.
+
+The layout is:
+
+```
+verification/
+  bib.md                        the canonical record: entry, abstract, justification, quotes
+  source/<citeKey>/
+    <citeKey>.bib               the composite entry on its own
+    latex/                      unpacked arXiv source, when any exists
+    <citeKey>-arxiv-src.tar.gz  the tarball exactly as arXiv served it
+    content.lines               paperclip's extracted, line-numbered text
+    fulltext.xml                Europe PMC JATS, when the paper is in PMC
+    <citeKey>.pdf               the PDF
+    PROVENANCE.json             every URL fetched and what came back
+```
+
+Two switches control it:
+
+| Switch | Effect |
+|---|---|
+| `--into DIR` | Put the directory somewhere else. Relative paths resolve against the current directory, so `--into ../shared/verification` and `--into /abs/path` both work. `$ALLPAPERS_VERIFICATION_DIR` sets the same thing once for a whole shell. |
+| `--no-record` | Write nothing to it at all, and do not create it. The paper is fetched to a temp directory, the report and the composite BibTeX entry are printed, and the current directory is left untouched. |
+
+`--no-record` is for looking something up without committing to it — checking
+what a paper says, grabbing an entry for a `.bib` file, reading a candidate you
+have no intention of citing. It cannot be combined with `--promote`, `--reject`
+or `--retire`, since those modes exist only to write the record.
+
+```bash
+scripts/allpapers-fetch 10.1038/nature14539 --no-record        # nothing lands on disk here
+scripts/allpapers-fetch 10.1038/nature14539 --into ~/refs      # ~/refs/bib.md instead
+export ALLPAPERS_VERIFICATION_DIR=~/refs                       # for the rest of the shell
+```
 
 **A caveat on directory names.** Citation keys from INSPIRE-HEP contain a colon
 (`Vaswani:2017lxt`), and the directory is named for the key exactly as specified.
@@ -639,6 +796,21 @@ so you can read just the ones you are about to use; full detail is in the matchi
 - **Model overload is a routine transient failure**, not a bug in your request:
   HTTP 500 on `interactions` and 503 on `generateContent`, both succeeding on
   retry.
+- **Two backends, and only one of them is billed.** `--gemini-backend api` calls
+  `generativelanguage.googleapis.com` and needs `GEMINI_API_KEY`, which bills a
+  Google Cloud account — a Gemini subscription does not pay for it.
+  `--gemini-backend agy` shells out to the Antigravity CLI instead, which signs
+  in with an ordinary Google account, needs no key, and has the same Google
+  Search behind it. `auto`, the default, uses the API when a key is configured
+  and falls back to `agy`. Both were verified end to end on 2026-08-26.
+- **The `agy` backend returns prose, not grounding metadata.** The API reports the
+  Google Search queries it ran and annotates each citation; `agy` returns a plain
+  answer, so `allpapers-search` parses the links back out of the Markdown and the
+  queries are simply not recoverable. The upside is that its links are the real
+  destinations rather than Vertex redirect tokens.
+- **`agy` hangs if gnome-keyring can grab the terminal.** Run it with `DISPLAY=""`,
+  `SSH_CLIENT` and `SSH_TTY` set — see [Running `agy` from a
+  script](#running-agy-from-a-script). `allpapers-search` sets those itself.
 - **Grounded answers are leads, not sources.** `allpapers-search` prints an
   `allpapers-locate` command for every identifier it extracts, so each one gets
   confirmed against a real index before it is cited.
