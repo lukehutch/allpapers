@@ -655,31 +655,118 @@ copy is, and one will often know a repository copy the others have missed.
 
 ## Keys, quotas and rate limits
 
-Every number in the "free limit" column was **measured live on 2026-08-26** from
+Every *free limit* below was **measured live on 2026-08-26** from
 the service's own response headers unless it is marked otherwise. Values marked
 *(their docs)* come from the service's published terms because the service returns
 no rate-limit headers; values marked *(not measured)* are recorded for completeness
 and were not verified here.
 
-| Service | Key or registration | Free limit | Raised by |
-|---|---|---|---|
-| **paperclip** | Browser OAuth login; `PAPERCLIP_API_KEY` or `--api-key` for non-interactive use | free-tier usage cap | API key — <https://paperclip.gxl.ai/keys> |
-| **Crossref** | none | **10 requests/second** (`x-rate-limit-limit: 10`, `x-rate-limit-interval: 1s`) | a `mailto:` in the User-Agent or query puts you in the polite pool — confirmed by `x-api-pool: polite-single`. Paid Metadata Plus exists *(not measured)* |
-| **OpenAlex** | none, but a free key is worth having | **$0.10/day** — 1000 credits at 1 credit per metadata lookup, reset at midnight UTC (`x-ratelimit-limit-usd`, `x-ratelimit-reset`) | free key at <https://openalex.org/users> → **$1/day**; paid tiers $20/$100/$200+ per day |
-| **Unpaywall** | no key, but `email=` is required on every call | "Please limit use to 100,000 calls per day" *(their docs)*; no rate-limit headers returned | bulk data dump for heavier use |
-| **CORE** | free key | metered in **tokens**, not requests (a simple query costs 1, a complex one 3–5): **100 tokens/day** unauthenticated, max 10/minute, **and full text is withheld** | free personal key → **1,000 tokens/day**; academic → 5,000/day; academic at a CORE-supporting institution → negotiated, ~200k/day. See the tier table above |
-| **Europe PMC** | none | no published limit; returns no rate-limit headers | — |
-| **NCBI E-utilities** | none; free key available | **3 requests/second per IP**, enforced with HTTP 429 rather than throttling | free key at <https://www.ncbi.nlm.nih.gov/account/settings/> → **10/s**, passed as `&api_key=` |
-| **Semantic Scholar** | none; free key available | a **shared** anonymous pool — a single cold call to `/paper/search` returned **429**, and succeeded on the immediate retry | free key — <https://www.semanticscholar.org/product/api#api-key> |
-| **arXiv** | none | **1 request every 3 seconds, one connection at a time**, across all machines you control *(their terms of use)* | — (bulk access is via dumps, not a higher API limit) |
-| **DataCite** | none | no published limit; returns no rate-limit headers | — |
-| **INSPIRE-HEP** | none | no published limit; returns no rate-limit headers | — |
-| **Google Scholar** | none — there is no official API | blocks by IP address, **invisibly** (HTTP 200, full page, no results) | paid SerpApi — `serpapi_key` |
-| **Gemini grounded search** | **API key required**, free and instant at <https://aistudio.google.com/apikey> | per-model and per-day free-tier caps; see <https://ai.google.dev/gemini-api/docs/rate-limits> | paid tier |
-| **LibGen** | **none** — metadata *and* download work unauthenticated | none published, none observed; no rate-limit headers | — |
-| **Sci-Hub** | none | none — the constraint is availability, not rate | — |
-| **Anna's Archive** | search needs none; details and downloads need your **account secret key** (the string you log in with) | free users get "slow downloads" with a countdown, browser only | **paid donation/membership** for fast downloads — the only paid tier among the shadow libraries |
-| **Z-Library** | account required | daily download cap | paid tier raises the cap *(not measured)* |
+- **paperclip**
+  - *Key:* browser OAuth login; `PAPERCLIP_API_KEY` or `--api-key` for
+    non-interactive use.
+  - *Free limit:* a free-tier usage cap.
+  - *Raised by:* an API key — <https://paperclip.gxl.ai/keys>
+
+- **Crossref**
+  - *Key:* none.
+  - *Free limit:* **10 requests/second** (`x-rate-limit-limit: 10`,
+    `x-rate-limit-interval: 1s`).
+  - *Raised by:* a `mailto:` in the User-Agent or the query, which puts you in the
+    polite pool — confirmed by `x-api-pool: polite-single`. A paid Metadata Plus
+    tier exists *(not measured)*.
+
+- **OpenAlex**
+  - *Key:* none needed, but a free one is worth having.
+  - *Free limit:* **$0.10/day** — 1000 credits at 1 credit per metadata lookup,
+    reset at midnight UTC (`x-ratelimit-limit-usd`, `x-ratelimit-reset`).
+  - *Raised by:* a free key at <https://openalex.org/users> → **$1/day**; paid
+    tiers at $20/$100/$200+ per day.
+
+- **Unpaywall**
+  - *Key:* none, but `email=` is required on every call.
+  - *Free limit:* "Please limit use to 100,000 calls per day" *(their docs)*; it
+    returns no rate-limit headers.
+  - *Raised by:* the bulk data dump, for heavier use.
+
+- **CORE**
+  - *Key:* free key.
+  - *Free limit:* metered in **tokens**, not requests — a simple query costs 1, a
+    complex one 3–5. **100 tokens/day** unauthenticated, max 10/minute, **and full
+    text is withheld**.
+  - *Raised by:* a free personal key → **1,000 tokens/day**; academic → 5,000/day;
+    academic at a CORE-supporting institution → negotiated, ~200k/day. See the
+    tier table above.
+
+- **Europe PMC**
+  - *Key:* none.
+  - *Free limit:* no published limit; returns no rate-limit headers.
+  - *Raised by:* —
+
+- **NCBI E-utilities**
+  - *Key:* none required; a free one is available.
+  - *Free limit:* **3 requests/second per IP**, enforced with HTTP 429 rather than
+    throttling.
+  - *Raised by:* a free key at <https://www.ncbi.nlm.nih.gov/account/settings/> →
+    **10/s**, passed as `&api_key=`.
+
+- **Semantic Scholar**
+  - *Key:* none required; a free one is available.
+  - *Free limit:* a **shared** anonymous pool — a single cold call to
+    `/paper/search` returned **429** and succeeded on the immediate retry.
+  - *Raised by:* a free key — <https://www.semanticscholar.org/product/api#api-key>
+
+- **arXiv**
+  - *Key:* none.
+  - *Free limit:* **1 request every 3 seconds, one connection at a time**, across
+    all machines you control *(their terms of use)*.
+  - *Raised by:* nothing — bulk access is via dumps, not a higher API limit.
+
+- **DataCite**
+  - *Key:* none.
+  - *Free limit:* no published limit; returns no rate-limit headers.
+  - *Raised by:* —
+
+- **INSPIRE-HEP**
+  - *Key:* none.
+  - *Free limit:* no published limit; returns no rate-limit headers.
+  - *Raised by:* —
+
+- **Google Scholar**
+  - *Key:* none — there is no official API.
+  - *Free limit:* blocks by IP address, **invisibly** — HTTP 200, a full page, no
+    results.
+  - *Raised by:* paid SerpApi — `serpapi_key`.
+
+- **Gemini grounded search**
+  - *Key:* an API key for the `api` backend, free and instant at
+    <https://aistudio.google.com/apikey>; **none** for the `agy` backend, which
+    uses an existing Antigravity login.
+  - *Free limit:* per-model and per-day free-tier caps; see
+    <https://ai.google.dev/gemini-api/docs/rate-limits>.
+  - *Raised by:* the paid tier. Note that paid Gemini API use bills a Google Cloud
+    account, which a Gemini subscription does not cover — `agy` avoids that.
+
+- **LibGen**
+  - *Key:* **none** — metadata *and* download work unauthenticated.
+  - *Free limit:* none published, none observed; no rate-limit headers.
+  - *Raised by:* —
+
+- **Sci-Hub**
+  - *Key:* none.
+  - *Free limit:* none — the constraint is availability, not rate.
+  - *Raised by:* —
+
+- **Anna's Archive**
+  - *Key:* search needs none; details and downloads need your **account secret
+    key**, the string you log in with.
+  - *Free limit:* free users get "slow downloads" with a countdown, browser only.
+  - *Raised by:* a **paid donation/membership** for fast downloads — the only paid
+    tier among the shadow libraries.
+
+- **Z-Library**
+  - *Key:* an account.
+  - *Free limit:* a daily download cap.
+  - *Raised by:* a paid tier *(not measured)*.
 
 Store keys with `scripts/allpapers-setup --set <name>=<value>`; run
 `scripts/allpapers-setup --check` to see which are present. Keys are scrubbed
