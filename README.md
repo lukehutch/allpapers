@@ -188,15 +188,62 @@ only for what is still missing.
 
 Everything works without the optional keys, just less well.
 
-| Setting | Used by | Cost | Where to register | What it buys |
-|---|---|---|---|---|
-| `email` | **Unpaywall: required.** OpenAlex, Crossref: optional, joins their polite pools. scihub-cli reuses it | — | No registration — any address you own. The requirement is documented at <https://unpaywall.org/products/api> | Unpaywall answers at all; politer treatment from OpenAlex and Crossref |
-| `core_api_key` | **CORE: optional**, but anonymous CORE returns no full text | free, instant | <https://core.ac.uk/services/api#form> | CORE full text — **verified**: with a key, records return real text (38,460 and 68,513 characters in one test); anonymous returns the literal string `"Not available for public API users."`. Raises the quota from 100 to **1,000 tokens/day** — see the tier table below |
-| `openalex_api_key` | **OpenAlex: optional**; required for its cached full text | free, instant | <https://openalex.org/users> | OpenAlex's cached GROBID TEI XML (~49M works, $0.01/file) and a $1/day metadata budget instead of the anonymous $0.10/day |
-| `gemini_api_key` | **Gemini grounded search: required for the `api` backend.** Not needed for the `agy` backend | free tier | <https://aistudio.google.com/apikey> | Grounded web search — real Google Search queries returning answers with citations, reaching papers a plain web search misses |
-| `ncbi_api_key` | **PubMed, PMC, NCBI eutils: optional**, raises the rate limit | free | <https://account.ncbi.nlm.nih.gov/> → Account settings → API Key Management | NCBI eutils at 10 requests/sec instead of 3. The anonymous limit is enforced and returns HTTP 429 mid-sequence, which reads as a lookup failure rather than a rate limit |
-| `semantic_scholar_api_key` | **Semantic Scholar: optional**, raises the shared-pool rate limit | free, but manually reviewed — expect a wait | <https://www.semanticscholar.org/product/api#api-key> | Higher Semantic Scholar rate limits |
-| `serpapi_key` | **Google Scholar: optional**; without it Scholar is scraped and will eventually serve a CAPTCHA | 100 free searches/month, then paid | <https://serpapi.com/users/sign_up>, key at <https://serpapi.com/manage-api-key> | Google Scholar via SerpApi instead of scraping. Only worth it if Scholar blocks and the paper matters |
+- **`email`**
+  - *Used by:* **Unpaywall:** required. **OpenAlex, Crossref:** optional, joins
+    their polite pools. **scihub-cli** reuses it.
+  - *Cost:* free — any address you own, no registration.
+  - *Where to register:* nowhere. The requirement itself is documented at
+    <https://unpaywall.org/products/api>.
+  - *What it buys:* Unpaywall answering at all, and politer treatment from
+    OpenAlex and Crossref.
+
+- **`core_api_key`**
+  - *Used by:* **CORE:** optional, but anonymous CORE returns no full text.
+  - *Cost:* free, instant.
+  - *Where to register:* <https://core.ac.uk/services/api#form>
+  - *What it buys:* CORE full text. **Verified:** with a key, records return real
+    text — 38,460 and 68,513 characters in one test; anonymous returns the literal
+    string `"Not available for public API users."` It also raises the quota from
+    100 to **1,000 tokens/day** — see the tier table below.
+
+- **`openalex_api_key`**
+  - *Used by:* **OpenAlex:** optional; required for its cached full text.
+  - *Cost:* free, instant.
+  - *Where to register:* <https://openalex.org/users>
+  - *What it buys:* OpenAlex's cached GROBID TEI XML — ~49M works, $0.01/file —
+    and a $1/day metadata budget instead of the anonymous $0.10/day.
+
+- **`gemini_api_key`**
+  - *Used by:* **Gemini grounded search:** required for the `api` backend, not
+    needed for the `agy` backend.
+  - *Cost:* free tier.
+  - *Where to register:* <https://aistudio.google.com/apikey>
+  - *What it buys:* grounded web search — real Google Search queries returning
+    answers with citations, reaching papers a plain web search misses.
+
+- **`ncbi_api_key`**
+  - *Used by:* **PubMed, PMC, NCBI eutils:** optional, raises the rate limit.
+  - *Cost:* free.
+  - *Where to register:* <https://account.ncbi.nlm.nih.gov/> → Account settings
+    → API Key Management.
+  - *What it buys:* eutils at 10 requests/sec instead of 3. The anonymous limit is
+    enforced and returns HTTP 429 mid-sequence, which reads as a lookup failure
+    rather than as a rate limit.
+
+- **`semantic_scholar_api_key`**
+  - *Used by:* **Semantic Scholar:** optional, raises the shared-pool rate limit.
+  - *Cost:* free, but manually reviewed — expect a wait.
+  - *Where to register:* <https://www.semanticscholar.org/product/api#api-key>
+  - *What it buys:* higher Semantic Scholar rate limits.
+
+- **`serpapi_key`**
+  - *Used by:* **Google Scholar:** optional; without it Scholar is scraped and
+    will eventually serve a CAPTCHA.
+  - *Cost:* 100 free searches/month, then paid.
+  - *Where to register:* <https://serpapi.com/users/sign_up>, key at
+    <https://serpapi.com/manage-api-key>
+  - *What it buys:* Google Scholar through SerpApi instead of scraping. Only worth
+    it if Scholar blocks and the paper matters.
 
 Any setting can also be given as an environment variable: **the setting name in
 upper case** — `CORE_API_KEY`, `GEMINI_API_KEY`, `SERPAPI_KEY` and so on. The one
