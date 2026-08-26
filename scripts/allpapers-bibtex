@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate a normalised BibTeX entry from an authoritative index.
+"""Generate a normalized BibTeX entry from an authoritative index.
 
 Never write a .bib entry by hand or from memory. This fetches it from the index
 that actually registered the work, then fixes the things indexes reliably get
@@ -289,7 +289,7 @@ def _strip_tags(h: str) -> str:
 
 
 # --------------------------------------------------------------------------
-# normalisation
+# normalization
 # --------------------------------------------------------------------------
 
 def flip_name(full: str) -> str:
@@ -314,7 +314,7 @@ DASHES = dict.fromkeys(map(ord, "‐‑‒–—―"), None)
 def expand_pages(start: str, end: str) -> str:
     """MEDLINE abbreviates the closing page: 1609-10 means 1609-1610.
 
-    Taken verbatim into a bib entry it becomes a page range that runs backwards.
+    Taken verbatim into a bib entry it becomes a page range that runs backward.
     Expand by borrowing the leading digits of the start page.
     """
     if end.isdigit() and start.isdigit() and len(end) < len(start):
@@ -568,7 +568,7 @@ FALLBACK_TRUST = ["Crossref", "INSPIRE-HEP", "PubMed", "arXiv", "DataCite",
                   "Scholar"]
 
 # Not wanted in a citation entry, and actively noisy when they arrive. DataCite
-# returns arXiv's whole distribution licence as `copyright` and repeats subject
+# returns arXiv's whole distribution license as `copyright` and repeats subject
 # terms in `keywords` ("FOS: Physical sciences, FOS: Physical sciences").
 DROP_FIELDS = {"copyright", "abstract", "language", "keywords", "urldate",
                "collection", "note"}
@@ -721,7 +721,7 @@ def protect_title(title: str) -> tuple[str, str]:
 
     Only the parts that carry meaning in their case are protected — maths spans
     and words with a capital after the first letter (AdS, QCD, DNA, McDonald).
-    Ordinary capitalised words are left alone, because a style that sentence-cases
+    Ordinary capitalized words are left alone, because a style that sentence-cases
     them is doing what the person who chose it asked for.
     """
     if not title or "{" in title or "}" in title:
@@ -803,7 +803,7 @@ def bibmd_stub(bib: str, ids: L.Ids, authority: str, urls: dict) -> str:
 
 def main() -> int:
     ap = argparse.ArgumentParser(
-        description="Generate a normalised composite BibTeX entry, merging every "
+        description="Generate a normalized composite BibTeX entry, merging every "
                     "authoritative index that has the work.")
     ap.add_argument("identifier", help="DOI, arXiv ID, PMID, PMCID, URL or title")
     ap.add_argument("--bibmd", action="store_true",

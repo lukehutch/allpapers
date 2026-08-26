@@ -308,7 +308,7 @@ Staged only — nothing written to verification/. Judge the paper, then:
 ```
 
 **Step 2 — read what was staged and decide.** The whole point of the step: the
-abstract and full text are on disk, so the judgement is made on the paper rather
+abstract and full text are on disk, so the judgment is made on the paper rather
 than on a search snippet.
 
 **Step 3 — promote or reject**, copying the command it printed and adding your
@@ -320,7 +320,7 @@ scripts/allpapers-fetch arXiv:2401.12345 --promote /tmp/allpapers-Author_2024abc
   --quote "the estimator converges at rate n^{-1/2}@#L211"
 
 scripts/allpapers-fetch arXiv:2401.12345 --reject \
-  --justification "Uses the same term for an unrelated optimisation problem; no bearing on the claim."
+  --justification "Uses the same term for an unrelated optimization problem; no bearing on the claim."
 ```
 
 To script this rather than read it, use `--stage --json` and take the `staged`
@@ -343,7 +343,7 @@ noise, not provenance.
 
 ### What goes in every record
 
-`allpapers-fetch` fills these in, but you supply the judgement:
+`allpapers-fetch` fills these in, but you supply the judgment:
 
 - **The composite BibTeX entry** — merged field by field across INSPIRE-HEP,
   Crossref, DataCite, arXiv, PubMed and Scholar, because no single index is right
@@ -397,7 +397,7 @@ the material for 1 and 3 without re-running anything.
 | `scripts/allpapers-search` | Keyword, semantic, hybrid and analogical search, optionally with Gemini grounded web search via the API or `agy` |
 | `scripts/arxiv-source` | arXiv submitted source → unpacked LaTeX in a temp directory |
 | `scripts/allpapers-mirrors` | Which shadow-library mirrors are usable right now — verifies content, not status |
-| `scripts/allpapers-bibtex` | Composite normalised BibTeX merged across every index that has the work |
+| `scripts/allpapers-bibtex` | Composite normalized BibTeX merged across every index that has the work |
 | `scripts/allpapers-fetch` | Fetch source + PDF, stage or promote, and write the `verification/bib.md` record (`--into`, `--no-record`) |
 
 ## Reference files
@@ -413,6 +413,6 @@ the material for 1 and 3 without re-running anything.
 | `reference/other-indices.md` | OpenAlex, Crossref, Europe PMC, Semantic Scholar, NCBI, DOAJ, OpenAIRE |
 | `reference/scholar.md` | Google Scholar scraping, the silent block, SerpApi |
 | `reference/gemini.md` | Gemini grounded search: the API and `agy` backends, request shapes, citation extraction |
-| `reference/bibtex.md` | How the composite entry is merged, the per-field trust order, normalisation |
+| `reference/bibtex.md` | How the composite entry is merged, the per-field trust order, normalization |
 | `reference/scihub.md` | scihub-cli, its defects, and the manual fallback |
 | `reference/verification.md` | `verification/bib.md` and `verification/equations.py` |

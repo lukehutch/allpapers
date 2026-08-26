@@ -66,7 +66,7 @@ Four things measured that the docs do not spell out:
   than concluding the integration is broken; `GEMINI_MODEL` overrides the model if
   one stays saturated.
 - **Grounded answers are still leads.** The measured run named a correct arXiv ID
-  and DOI, confirmed afterwards by `allpapers-locate`, but that confirmation step
+  and DOI, confirmed afterward by `allpapers-locate`, but that confirmation step
   is the point: the output prints an `allpapers-locate` command per identifier for
   exactly this reason.
 

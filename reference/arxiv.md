@@ -22,7 +22,7 @@ dir=$(scripts/arxiv-source hep-th/9711200)
 scripts/arxiv-source 2304.04556 -o /some/path
 ```
 
-The script normalises `arXiv:` prefixes, version suffixes and full URLs, then
+The script normalizes `arXiv:` prefixes, version suffixes and full URLs, then
 fetches `https://arxiv.org/src/<id>`. Exit 3 means the submission was PDF-only.
 
 `https://arxiv.org/e-print/<id>` serves the same bytes and is an equivalent

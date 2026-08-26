@@ -57,7 +57,7 @@ integration would have to rebuild:
   `/api/cli/results/{id}` whenever the inline payload is marked truncated or holds
   fewer papers than the reported count, and sets `skip_truncation` on the MCP
   path. Skip that and you silently lose results with no error.
-- **`output` is ANSI-coloured terminal prose**, not data. `result_data` is
+- **`output` is ANSI-colored terminal prose**, not data. `result_data` is
   structured for some commands (`search` returns `papers[]` with `document_id`,
   `source`, `pub_year`, `title`, `authors`) but is absent for others — `ls`
   returned `result_id: None`.
@@ -151,7 +151,7 @@ four rankings, result limits, sort order, the narrowing filters new in 0.7.38
   `[~9784 tokens total, showing first ~1000 chars]`; `head -n 500` returned all
   130 lines and 40,019 bytes. The banner is easy to scroll past, and nothing
   fails. Small files are not truncated — a 2.5 kB `meta.json` came back whole —
-  so the behaviour is size-dependent and will not show up in a quick test.
+  so the behavior is size-dependent and will not show up in a quick test.
   **Use `head -n <big>`, `sections/`, `grep` or `scan`; never trust `cat` for a
   whole paper.**
 - **`SELECT COUNT(*)` returns one row per backend, not a total.** `SELECT COUNT(*)

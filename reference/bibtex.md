@@ -1,6 +1,6 @@
 # Building the BibTeX entry
 
-`scripts/allpapers-bibtex <identifier>` prints one normalised entry, assembled
+`scripts/allpapers-bibtex <identifier>` prints one normalized entry, assembled
 from every index that has the work. Everything below was measured against the
 live services on 2026-08-25; each claim names the paper it was measured on so it
 can be re-checked.
@@ -49,7 +49,7 @@ paper.
 
 `doi.org` content negotiation returns the registration agency's own BibTeX, so
 one request covers Crossref and DataCite both. Which agency answered is
-determined afterwards by asking `api.crossref.org` whether it knows the DOI —
+determined afterward by asking `api.crossref.org` whether it knows the DOI —
 that distinction matters, because the two agencies need different handling.
 
 **efetch, not esummary, for PubMed.** Only efetch carries full author forenames;
@@ -93,10 +93,10 @@ literature and someone else may already be citing the paper by that key.
 
 Fields dropped on sight: `copyright`, `abstract`, `language`, `keywords`,
 `urldate`, `collection`, `note`. DataCite returns arXiv's entire distribution
-licence as `copyright`, and repeats subject terms in `keywords`
+license as `copyright`, and repeats subject terms in `keywords`
 (`FOS: Physical sciences, FOS: Physical sciences`).
 
-## Normalisations applied
+## Normalizations applied
 
 Each of these is printed as a `% normalised — …` line, so nothing is changed
 silently.
@@ -148,7 +148,7 @@ $N$ is the gauge group rank. Measured through a real `latexmk`/`plain.bst` build
 
 Only the parts whose case carries meaning are protected: maths spans, and words
 with a capital after the first letter (`AdS/CFT`, `QCD`, `DNA`, `CRISPR-Cas9`).
-Ordinary capitalised words are left alone — a style that sentence-cases them is
+Ordinary capitalized words are left alone — a style that sentence-cases them is
 doing what the person who chose it asked for. A title that already contains
 braces is never touched.
 
@@ -207,6 +207,6 @@ warning: Scholar contributed nothing: Scholar returned no parseable results
 ```
 
 The first block is where each index answered; the second is which index won each
-field; then disagreements, normalisations and warnings. `--json` returns the same
+field; then disagreements, normalizations and warnings. `--json` returns the same
 information as `indexes_consulted`, `index_urls`, `field_provenance`,
 `merge_notes`, `normalisations` and `warnings`.

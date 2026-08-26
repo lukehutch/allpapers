@@ -135,7 +135,7 @@ def resolve_title(ids: Ids) -> Ids:
 
     Free-text title search returns near-miss papers readily — "Attention is all
     you need" matches a 2025 book chapter of the same name as well as the 2017
-    original. So candidates are gathered from OpenAlex, an exact normalised title
+    original. So candidates are gathered from OpenAlex, an exact normalized title
     match is required, and ties break toward the most-cited paper, which for a
     duplicated title is essentially always the one that is being asked about.
     A near miss is reported rather than silently accepted.

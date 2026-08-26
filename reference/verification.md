@@ -188,12 +188,12 @@ paths already filled in. For a single known paper you are certain about, omit
 `--stage` and it fetches straight into `verification/source/<citationKey>/`.
 
 `--justification` is required for `--promote`, `--reject` and `--retire`. It is
-the field a future session reads to avoid redoing the judgement, so a bare "not
+the field a future session reads to avoid redoing the judgment, so a bare "not
 relevant" wastes the record.
 
 **Record a rejection only for a paper that genuinely looked relevant.** A search
 hit the title and abstract rule out is not written down at all. The file is a
-note about a real judgement call, not a search log.
+note about a real judgment call, not a search log.
 
 ### What lands in `verification/source/<citationKey>/`
 

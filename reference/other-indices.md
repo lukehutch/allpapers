@@ -122,7 +122,7 @@ reads `public`. A paid Metadata Plus tier exists and was not measured.
 **Crossref lower-cases the DOI in its response.** The registered casing has to be
 recovered from the entry's own `url` field — `10.1103/PhysRevD.59.043516`, not the
 lower-cased form. DataCite has the mirror-image problem, returning
-`10.48550/ARXIV.…` where the registered form is `10.48550/arXiv.…`. Normalise from
+`10.48550/ARXIV.…` where the registered form is `10.48550/arXiv.…`. Normalize from
 the `url`, not from the `DOI` field.
 
 ## Europe PMC — the best JATS XML source
@@ -258,7 +258,7 @@ being outside PMC is.
 
 ### 3. esearch `[AID]` — the reverse direction, DOI → PMID
 
-Nothing above goes backwards from a DOI unless the paper is in PMC. This does:
+Nothing above goes backward from a DOI unless the paper is in PMC. This does:
 
 ```
 https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&retmode=json&term={doi}%5BAID%5D

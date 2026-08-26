@@ -108,7 +108,7 @@ preprint, or a slide deck.
 ## Rung 6 — shadow libraries, last resort only
 
 Only when rungs 1–5 have all failed and the paper genuinely has no open copy.
-None of these is an open service; all hold unauthorised copies. Full detail,
+None of these is an open service; all hold unauthorized copies. Full detail,
 including every measured trap, is in `shadow-libraries.md`; `scihub.md` covers the
 `scihub-cli` wrapper.
 
@@ -164,5 +164,5 @@ paraphrase of something you never read.
 One thing is still worth trying at that point: OpenAlex deposits abstracts for
 papers whose full text is free nowhere, stored as `abstract_inverted_index`.
 Rebuild it by sorting word positions, and verify the claim against the abstract —
-labelled as abstract-level verification, not full text. `verification.md` has the
+labeled as abstract-level verification, not full text. `verification.md` has the
 rule; `other-indices.md` has the field.

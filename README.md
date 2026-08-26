@@ -6,7 +6,7 @@ It installs into Claude Code, the Codex CLI and Antigravity (`agy`) — see
 
 It merges the older `paperclip` and `scihub-cli` skills, adds CORE and Unpaywall,
 adds arXiv LaTeX source retrieval, and arranges every source into one priority
-ladder. The organising rule is that **a parseable text format is worth more than a
+ladder. The organizing rule is that **a parseable text format is worth more than a
 convenient one**: LaTeX and JATS XML carry equations, section structure and
 reference lists that PDF text extraction destroys.
 
@@ -210,7 +210,7 @@ No key or registration needed for:
   ...
 ```
 
-Running `allpapers-setup` with no arguments prints the same catalogue and prompts
+Running `allpapers-setup` with no arguments prints the same catalog and prompts
 only for what is still missing.
 
 Everything works without the optional keys, just less well.
@@ -299,7 +299,7 @@ figures below are not request counts.
 | Unauthenticated | nothing | **100 tokens/day**, max 10/minute |
 | Registered personal | the CORE API form | **1,000 tokens/day**, max 25/minute |
 | Registered academic, *not* at a Supporting or Sustaining institution | the CORE API form | **5,000 tokens/day**, max 10/minute |
-| Registered academic at a Supporting or Sustaining institution, and non-academic organisations | the CORE API form | negotiated — CORE estimates **~200k tokens/day** |
+| Registered academic at a Supporting or Sustaining institution, and non-academic organizations | the CORE API form | negotiated — CORE estimates **~200k tokens/day** |
 
 So a free personal key buys 1,000 tokens a day. The ~200k figure needs an academic
 affiliation whose library actually supports CORE; it is not something you can
@@ -334,7 +334,7 @@ Eight tools plus a set of reference documents:
 | `scripts/allpapers-locate` | Queries paperclip, arXiv, Unpaywall, OpenAlex, CORE and Europe PMC **concurrently** for one paper and prints every free full-text location, ranked most-parseable first. |
 | `scripts/allpapers-search` | Keyword (BM25), semantic (vector), hybrid and analogical search over paperclip's 11.6M full texts, optionally alongside Gemini grounded web search — through the Gemini API or, with `--gemini-backend agy`, through the Antigravity CLI and no API key. |
 | `scripts/arxiv-source` | Downloads an arXiv paper's submitted source into a `mktemp` directory and unpacks it, handling all three payload shapes arXiv serves. |
-| `scripts/allpapers-bibtex` | Builds one composite BibTeX entry by merging INSPIRE-HEP, Crossref, DataCite, arXiv, PubMed and Scholar field by field, then normalising it. |
+| `scripts/allpapers-bibtex` | Builds one composite BibTeX entry by merging INSPIRE-HEP, Crossref, DataCite, arXiv, PubMed and Scholar field by field, then normalizing it. |
 | `scripts/allpapers-fetch` | Fetches source *and* PDF into `./verification/source/<citationKey>/` in the current directory, and writes the `./verification/bib.md` record — staged first, promoted or rejected after you have read the paper. `--into` moves that directory, `--no-record` suppresses it entirely. |
 | `scripts/allpapers-mirrors` | Checks which shadow-library mirrors are usable right now by verifying **content and final hostname**, not the status code, and can print what open-slum.org reports alongside. |
 
@@ -485,7 +485,7 @@ skipping it loses information; but it does not reliably return the paper you ask
 for even on an exact title-restricted query, so it never outranks a registration
 record. Its contribution — or its silence — is reported either way.
 
-Normalisations applied, each fixing something measured:
+Normalizations applied, each fixing something measured:
 
 | Fix | Why it exists |
 |---|---|
@@ -579,7 +579,7 @@ export ALLPAPERS_VERIFICATION_DIR=~/refs                       # for the rest of
 (`Vaswani:2017lxt`), and the directory is named for the key exactly as specified.
 Colons are legal on Linux and macOS but illegal in Windows filenames, so a
 repository containing `verification/source/Vaswani:2017lxt/` will not check out on
-Windows. If that matters for your repository, sanitise the directory name — the
+Windows. If that matters for your repository, sanitize the directory name — the
 key inside the `.bib` entry must not change.
 
 ### The report at the end
@@ -613,7 +613,7 @@ and 3 without re-running anything.
 | `reference/other-indices.md` | OpenAlex, Crossref, Europe PMC, Semantic Scholar, NCBI, DOAJ, OpenAIRE |
 | `reference/scholar.md` | Google Scholar URL patterns, the silent block, CAPTCHA handling, SerpApi |
 | `reference/gemini.md` | Gemini grounded search: the API and `agy` backends, request shapes, citation extraction |
-| `reference/bibtex.md` | The composite merge, the per-field trust order, every normalisation applied |
+| `reference/bibtex.md` | The composite merge, the per-field trust order, every normalization applied |
 | `reference/scihub.md` | scihub-cli, its defects, mirror state, the manual fallback |
 | `reference/shadow-libraries.md` | LibGen/Anna's Archive/Z-Library APIs, live mirror status, SLUM, the traps |
 | `reference/verification.md` | `verification/bib.md` and `verification/equations.py` |
@@ -665,7 +665,7 @@ These are not 900M distinct papers. The indices are layered on each other:
   subset of Crossref's 186M, not an addition to it.
 - **OpenAlex is a superset of Crossref**, adding records from PubMed, arXiv,
   institutional repositories and elsewhere that never got a Crossref DOI. It is
-  run by the same organisation as Unpaywall and carries the same OA data.
+  run by the same organization as Unpaywall and carries the same OA data.
 - **CORE aggregates repositories**, so the same paper appears once per repository
   that holds it. Its 259M counts deposits, not distinct papers, which is why CORE
   returns several records for one DOI.
@@ -810,7 +810,7 @@ so you can read just the ones you are about to use; full detail is in the matchi
 
 - **`-n` defaults to 20, not the 100 its `--help` claims.** Measured at exactly 20
   on `pmc`, `arxiv`, `abstracts`, `trials/us` and `fda`, unchanged by `--all`, with
-  `-n` honoured exactly up to 500. Nothing warns you the rest existed. **Always
+  `-n` honored exactly up to 500. Nothing warns you the rest existed. **Always
   pass `-n 250`.**
 - **`cat` on a large file truncates**, printing a banner such as
   `[~9784 tokens total, showing first ~1000 chars]`. Use `head -n 500`,
@@ -918,7 +918,7 @@ so you can read just the ones you are about to use; full detail is in the matchi
   bare gzipped `.tex`, or `application/pdf` when the author submitted no source at
   all — 6 of 45 papers measured on 2026-08-26. `scripts/arxiv-source` exits 3 in
   that case, and `scripts/allpapers-locate` now checks the payload type so a
-  PDF-only submission is labelled `pdf` instead of sorting to the top as `latex`.
+  PDF-only submission is labeled `pdf` instead of sorting to the top as `latex`.
 - **arXiv's HTML is a subset of source availability, not a fallback for it.**
   `https://arxiv.org/html/<id>` is converted from the submitted TeX, so a paper
   with no TeX has no HTML: across 45 papers `/html/` never once succeeded where

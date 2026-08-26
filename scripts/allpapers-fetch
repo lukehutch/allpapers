@@ -24,7 +24,7 @@ a time — that is what --stage exists for.
 
 Rejections are recorded only for papers that genuinely looked relevant. A search
 hit that the title and abstract rule out is not written down at all; the record
-is a note to a future session about a real judgement call, not a search log.
+is a note to a future session about a real judgment call, not a search log.
 
 The verification directory is created **in the current working directory**, as
 `./verification/`, the first time a paper is kept, rejected or retired. Two
@@ -650,7 +650,7 @@ def main() -> int:
     if any(modes[1:]) and not args.justification:
         print("allpapers-fetch: --justification is required to promote, reject or "
               "retire — it is the field a future session reads to avoid redoing "
-              "this judgement", file=sys.stderr)
+              "this judgment", file=sys.stderr)
         return 2
 
     ids, bib, key, consulted, _ = gather_metadata(args.identifier)

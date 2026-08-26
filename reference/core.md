@@ -25,7 +25,7 @@ queries cost the most. So the per-day figures are token budgets, not call counts
 | Unauthenticated | 100 tokens/day, max 10/minute |
 | Registered personal | 1,000 tokens/day, max 25/minute |
 | Registered academic, not at a Supporting/Sustaining institution | 5,000 tokens/day, max 10/minute |
-| Registered academic at a Supporting/Sustaining institution, and non-academic organisations | negotiated; CORE estimates ~200k tokens/day |
+| Registered academic at a Supporting/Sustaining institution, and non-academic organizations | negotiated; CORE estimates ~200k tokens/day |
 
 The ~200k tier requires an academic affiliation whose library supports CORE — it
 is not obtainable by registration alone. Register at
@@ -129,5 +129,5 @@ works but is slower and occasionally stale. The heuristic the `scihub-cli` CORE
 integration uses, and a good one: prefer a URL on the original repository host
 over a `core.ac.uk` one, prefer URLs that look like a direct PDF (`.pdf` suffix,
 `.pdf?`, `/pdf/`, or `viewcontent.cgi` with an `article=` parameter), and
-penalise obvious landing pages. Treat HTTP 403 on a probe as "probably still
+penalize obvious landing pages. Treat HTTP 403 on a probe as "probably still
 valid" — many repositories block HEAD requests but serve GETs.

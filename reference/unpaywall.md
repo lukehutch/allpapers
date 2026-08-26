@@ -70,13 +70,13 @@ The two fields that decide what you do next:
   **Say which version you read** when a claim depends on the exact wording.
 
 `oa_status` is `gold`, `hybrid`, `bronze`, `green` or `closed`. `bronze` means
-free to read on the publisher's site with no open licence, so it can disappear.
+free to read on the publisher's site with no open license, so it can disappear.
 
 Take `url_for_pdf` when present, `url_for_landing_page` otherwise — but remember
 the format rule: a repository landing page sometimes offers XML or HTML that
 parses better than the PDF beside it.
 
-### How the extension decides its badge colour
+### How the extension decides its badge color
 
 From `extension/unpaywall.js` in the official extension: `host_type == "repository"`
 → green; otherwise `journal_is_in_doaj` → gold; otherwise bronze. Useful as a

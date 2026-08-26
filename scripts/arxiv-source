@@ -33,7 +33,7 @@ while [ $# -gt 0 ]; do
 done
 [ ${#ids[@]} -eq 1 ] || usage
 
-# Normalise: strip an arXiv: prefix, a version suffix, and a leading URL.
+# Normalize: strip an arXiv: prefix, a version suffix, and a leading URL.
 id="${ids[0]}"
 id="${id#arXiv:}"; id="${id#arxiv:}"
 id="${id##*arxiv.org/abs/}"; id="${id##*arxiv.org/pdf/}"; id="${id##*arxiv.org/src/}"
@@ -95,7 +95,7 @@ case "$kind" in
            "either — extract from the PDF" >&2
       exit 3 ;;
   *)
-      echo "arxiv-source: unrecognised payload type '$kind' for $id" >&2
+      echo "arxiv-source: unrecognized payload type '$kind' for $id" >&2
       exit 1 ;;
 esac
 
