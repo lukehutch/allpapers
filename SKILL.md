@@ -161,10 +161,24 @@ ls "$dir"/*.tex
 ```
 
 The main file is usually the `.tex` containing `\documentclass`, or the one
-`\input`/`\include` lines point into. Exit 3 means the author submitted a PDF only
-and there is no LaTeX to read. See `reference/arxiv.md` for the three payload
-shapes, the HTML alternative for recent papers, and how to find the main file in a
-multi-file submission.
+`\input`/`\include` lines point into.
+
+**Exit 3 means the author submitted a PDF only**, so there is no LaTeX to read —
+and no `arxiv.org/html/` either, because arXiv converts its HTML from the TeX.
+Extract from the PDF rather than spending a request on `/html/`.
+
+Old-style identifiers need their slash: `hep-th/9711200`, not `hep-th9711200`.
+paperclip strips it (`arx_math0010150`), and arXiv 404s on that form; both scripts
+put it back for you.
+
+### arXiv HTML — the second-best format
+
+`https://arxiv.org/html/<id>` is LaTeXML-converted HTML, available well back into
+the archive (`math/0010150` from 2000 returns 200) but not universal. It is a
+subset of source availability, never a substitute: measured over 45 papers, it
+never once succeeded where `/src/` failed. Use it when you want structure without
+unpacking a tarball; prefer the source when equations matter. See
+`reference/arxiv.md` for the measured availability table and the payload shapes.
 
 ### Everything else
 

@@ -592,9 +592,22 @@ so you can read just the ones you are about to use; full detail is in the matchi
 
 ### arXiv
 
-- **`/src/` is not always a tarball.** It can be a bare gzipped `.tex`, or a PDF
-  when the author submitted no source at all — `scripts/arxiv-source` exits 3 in
-  that case so the caller knows to fall back to PDF extraction.
+- **`/src/` is not always a tarball, and a 200 does not mean LaTeX.** It can be a
+  bare gzipped `.tex`, or `application/pdf` when the author submitted no source at
+  all — 6 of 45 papers measured on 2026-08-26. `scripts/arxiv-source` exits 3 in
+  that case, and `scripts/allpapers-locate` now checks the payload type so a
+  PDF-only submission is labelled `pdf` instead of sorting to the top as `latex`.
+- **arXiv's HTML is a subset of source availability, not a fallback for it.**
+  `https://arxiv.org/html/<id>` is converted from the submitted TeX, so a paper
+  with no TeX has no HTML: across 45 papers `/html/` never once succeeded where
+  `/src/` failed, and the 6 PDF-only papers 404ed on `/html/` 6 for 6. It is
+  genuinely useful — it reaches back to at least 2000 (`math/0010150`) and saves
+  unpacking a tarball — but do not spend a request on it after `/src/` fails. The
+  reverse gap is the real one: 2 of 45 had source with no HTML backfilled yet.
+- **Old-style arXiv IDs need their slash.** paperclip renders them stripped
+  (`arx_math0010150` for `math/0010150`) and every arXiv endpoint 404s on that
+  form. Both scripts restore it; before that fix the ID fell through to a title
+  search for the literal string.
 - **arXiv mints a DataCite DOI (`10.48550/arXiv.<id>`)**, so Crossref-based tools
   find nothing for it. Query DataCite, or use the arXiv ID directly.
 - **Their terms forbid storing and re-serving e-prints** from your own servers.

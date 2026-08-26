@@ -63,6 +63,10 @@ HEADERS = {"User-Agent": UA}
 DOI_RE = re.compile(r"\b(10\.\d{4,9}/[^\s\"'<>]+)", re.I)
 ARXIV_NEW_RE = re.compile(r"\b(\d{4}\.\d{4,5})(v\d+)?\b")
 ARXIV_OLD_RE = re.compile(r"\b([a-z-]+(?:\.[A-Z]{2})?/\d{7})(v\d+)?\b")
+# paperclip renders old-style IDs with the slash stripped — arx_math0010150 for
+# math/0010150 — and arxiv.org 404s on that form on every endpoint. Without this
+# the ID falls through to a title search for the literal string.
+ARXIV_OLD_NOSLASH_RE = re.compile(r"\b([a-z-]+(?:\.[A-Z]{2})?)(\d{7})(v\d+)?\b")
 PMCID_RE = re.compile(r"\b(PMC\d+)\b", re.I)
 PMID_RE = re.compile(r"^\d{6,8}$")
 
@@ -93,8 +97,12 @@ def parse_identifier(raw: str) -> Ids:
     stripped = re.sub(r"^(arxiv:)", "", s, flags=re.I)
     stripped = re.sub(r"^https?://arxiv\.org/(abs|pdf|src)/", "", stripped, flags=re.I)
     stripped = re.sub(r"\.pdf$", "", stripped, flags=re.I)
+    stripped = re.sub(r"^arx_", "", stripped, flags=re.I)
     if m := ARXIV_NEW_RE.fullmatch(stripped) or ARXIV_OLD_RE.fullmatch(stripped):
         ids.arxiv = m.group(1)
+        return ids
+    if m := ARXIV_OLD_NOSLASH_RE.fullmatch(stripped):
+        ids.arxiv = f"{m.group(1)}/{m.group(2)}"
         return ids
     if PMID_RE.fullmatch(s):
         ids.pmid = s
@@ -106,6 +114,14 @@ def parse_identifier(raw: str) -> Ids:
 def get(url: str, **kw) -> requests.Response | None:
     try:
         return requests.get(url, headers=HEADERS, timeout=TIMEOUT, **kw)
+    except requests.RequestException:
+        return None
+
+
+def head(url: str, **kw) -> requests.Response | None:
+    try:
+        return requests.head(url, headers=HEADERS, timeout=TIMEOUT,
+                             allow_redirects=True, **kw)
     except requests.RequestException:
         return None
 
@@ -273,16 +289,46 @@ def loc(source, fmt, url, note="", diagnostic=False) -> dict:
 
 
 def probe_arxiv(ids: Ids) -> list[dict]:
+    """Check the two text URLs rather than asserting them.
+
+    Both are built from the ID alone, so listing them unchecked makes claims
+    that are wrong often enough to matter. Measured over 45 papers on
+    2026-08-26: 6 were PDF-only submissions, where /src/ answers 200 with
+    `application/pdf` and there is no LaTeX at all — listing that as "latex"
+    sorts a PDF to the top of a ranking whose whole purpose is to avoid PDFs.
+    Another 2 had source but no HTML. arXiv generates the HTML *from* the TeX,
+    so HTML is a subset of source availability, never a substitute for it.
+    """
     if not ids.arxiv:
         return []
-    out = [
-        loc("arXiv", "latex", f"https://arxiv.org/src/{ids.arxiv}",
-            "submitted source; use scripts/arxiv-source"),
-        loc("arXiv", "html", f"https://arxiv.org/html/{ids.arxiv}",
-            "LaTeXML HTML; widely but not universally available (404 on older "
-            "papers) — ar5iv.labs.arxiv.org/html/ is the fallback"),
-        loc("arXiv", "pdf", f"https://arxiv.org/pdf/{ids.arxiv}", ""),
-    ]
+    out: list[dict] = []
+
+    src_url = f"https://arxiv.org/src/{ids.arxiv}"
+    r = head(src_url)
+    ctype = (r.headers.get("content-type") or "").lower() if r is not None else ""
+    if r is None:
+        out.append(loc("arXiv", "latex", src_url,
+                       "submitted source; use scripts/arxiv-source "
+                       "(not checked — the probe failed)"))
+    elif r.ok and "pdf" in ctype:
+        out.append(loc("arXiv", "pdf", src_url,
+                       "PDF-only submission: /src/ serves the PDF itself, there "
+                       "is no LaTeX, and /html/ does not exist for these either"))
+    elif r.ok:
+        out.append(loc("arXiv", "latex", src_url,
+                       "submitted source; use scripts/arxiv-source"))
+
+    html_url = f"https://arxiv.org/html/{ids.arxiv}"
+    h = head(html_url)
+    if h is None:
+        out.append(loc("arXiv", "html", html_url,
+                       "LaTeXML HTML (not checked — the probe failed); "
+                       "ar5iv.labs.arxiv.org/html/ is the fallback"))
+    elif h.ok:
+        out.append(loc("arXiv", "html", html_url,
+                       "LaTeXML HTML, converted from the submitted TeX"))
+
+    out.append(loc("arXiv", "pdf", f"https://arxiv.org/pdf/{ids.arxiv}", ""))
     return out
 
 

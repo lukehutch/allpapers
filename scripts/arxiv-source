@@ -39,6 +39,12 @@ id="${id#arXiv:}"; id="${id#arxiv:}"
 id="${id##*arxiv.org/abs/}"; id="${id##*arxiv.org/pdf/}"; id="${id##*arxiv.org/src/}"
 id="${id%.pdf}"
 id="${id%v[0-9]}"; id="${id%v[0-9][0-9]}"
+# paperclip renders old-style IDs with the slash stripped — arx_math0010150 for
+# math/0010150 — and arxiv.org 404s on that form. Put the slash back.
+id="${id#arx_}"
+if [[ "$id" =~ ^([a-z-]+(\.[A-Z]{2})?)([0-9]{7})$ ]]; then
+  id="${BASH_REMATCH[1]}/${BASH_REMATCH[3]}"
+fi
 
 if [ -z "$outdir" ]; then
   outdir="$(mktemp -d "${TMPDIR:-/tmp}/arxiv-XXXXXX")"
@@ -54,6 +60,10 @@ code=$(curl -sL --max-time 120 -A "$UA" -w '%{http_code}' -o "$payload" \
 
 if [ "$code" != 200 ]; then
   echo "arxiv-source: https://arxiv.org/src/$id returned HTTP $code" >&2
+  # A 404 here is nearly always the identifier, not a missing paper: old-style
+  # IDs need their slash (math/0010150, not math0010150).
+  [ "$code" = 404 ] && echo "arxiv-source: check the identifier form —" \
+    "old-style IDs need the slash, as in hep-th/9711200" >&2
   exit 1
 fi
 
@@ -78,6 +88,11 @@ case "$kind" in
       echo "$outdir"
       echo "arxiv-source: PDF-only submission, no LaTeX source available;" \
            "the PDF itself is in $outdir" >&2
+      # arXiv builds its HTML from the TeX source, so a submission with no TeX
+      # has no https://arxiv.org/html/ either — measured 6 for 6 on 2026-08-26.
+      # Extract text from the PDF; do not spend a request on /html/.
+      echo "arxiv-source: arxiv.org/html/$id will not exist for this paper" \
+           "either — extract from the PDF" >&2
       exit 3 ;;
   *)
       echo "arxiv-source: unrecognised payload type '$kind' for $id" >&2
