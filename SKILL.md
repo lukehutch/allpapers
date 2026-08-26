@@ -57,8 +57,16 @@ that gets committed.
 | **Semantic Scholar key** | free | Higher rate limits on the identifier-bridge endpoint |
 | **SerpApi key** | 250/month free | Only if Google Scholar blocks and the paper matters |
 
-Get them at <https://core.ac.uk/services/api#form>, <https://openalex.org/users>,
-<https://aistudio.google.com/apikey>, <https://www.ncbi.nlm.nih.gov/account/>.
+`scripts/allpapers-setup --check`, and `scripts/allpapers-setup` with no
+arguments, print the registration URL for every one of these plus the services
+that need no key at all. Read the URL out of the tool rather than from memory —
+it is the one place that is kept current. Any setting can also come from its env
+var: the key name in upper case, except `email`, whose variable is
+`ALLPAPERS_EMAIL`.
+
+The Gemini key is only needed for the API backend. If `agy` (Google Antigravity)
+is installed, `allpapers-search --gemini` falls back to it automatically and uses
+the user's existing Antigravity login instead — see below.
 
 If paperclip is not installed:
 
@@ -151,6 +159,39 @@ that paperclip's four backends do not index. It returns *claims with citations*,
 so treat every result as a lead to verify, never as a source. `--gemini-only`
 skips paperclip.
 
+If the output says **"no cited sources: this answer is ungrounded"**, the model
+answered from its own weights and never ran a search — that is not the same as
+"the web had nothing", and nothing in it may be relied on. Re-ask with wording
+that forces a search, or use the corpus.
+
+**Two Gemini backends.** `--gemini-backend` picks between them:
+
+| Value | What it uses | When it applies |
+|---|---|---|
+| `auto` (default) | the API if `gemini_api_key` is set, otherwise `agy` | leave it here |
+| `api` | `generativelanguage.googleapis.com` with the key | billed to a Google Cloud account |
+| `agy` | the `agy` CLI with the user's Antigravity login | no key, no cloud billing |
+
+The `agy` route matters because a Gemini API key bills a Google Cloud account —
+Antigravity or Gemini subscription credits do **not** cover it. A user who has
+signed into `agy` already has grounded Google search with nothing more to pay.
+The model is `gemini-3.7-flash-high` (override with `ALLPAPERS_AGY_MODEL`).
+
+**`agy` hangs if you run it plainly from a script.** It asks gnome-keyring for
+its stored credentials, the unlock dialog takes the terminal, and the run blocks
+forever with no output. Present the shell as a remote SSH session with no display
+and it falls back to its own token store:
+
+```bash
+export DISPLAY=""
+export SSH_CLIENT="127.0.0.1 12345 22"
+export SSH_TTY="/dev/pts/0"
+agy -p "your prompt" --model gemini-3.7-flash-high
+```
+
+`allpapers-search` sets those three itself, so `--gemini-backend agy` needs no
+setup. Apply the same three exports to **any** other `agy` invocation you make.
+
 ## Getting the full text
 
 ### arXiv LaTeX source — the best format that exists
@@ -215,6 +256,20 @@ three markers that distinguish a block from an empty result set.
 Every paper that informs a claim must end up in `verification/bib.md`, and its
 files in `verification/source/<citationKey>/`. `reference/verification.md` is the
 authority on the format; this is the workflow.
+
+`verification/` is created **in the current working directory** the first time a
+paper is kept, rejected or retired — so run `allpapers-fetch` from the directory
+that owns the bibliography, not from wherever you happen to be. Two switches
+move or silence it:
+
+| Switch | Effect |
+|---|---|
+| `--into DIR` | put the directory somewhere else; relative paths resolve against the current directory. `ALLPAPERS_VERIFICATION_DIR` sets the same thing once |
+| `--no-record` | create nothing: fetch to a temp directory, print the report, leave no trace. For "what does this paper actually say?" when no claim depends on it |
+
+`--no-record` cannot be combined with `--promote`, `--reject` or `--retire` —
+those modes exist only to write the record, so the tool refuses rather than
+silently doing nothing.
 
 ### For an exact lookup you already know you want
 
@@ -338,11 +393,11 @@ the material for 1 and 3 without re-running anything.
 |---|---|
 | `scripts/allpapers-setup` | First-run credential setup and status check |
 | `scripts/allpapers-locate` | One paper → every free full-text location, ranked most-parseable first |
-| `scripts/allpapers-search` | Keyword, semantic, hybrid and analogical search, optionally with Gemini grounded web search |
+| `scripts/allpapers-search` | Keyword, semantic, hybrid and analogical search, optionally with Gemini grounded web search via the API or `agy` |
 | `scripts/arxiv-source` | arXiv submitted source → unpacked LaTeX in a temp directory |
 | `scripts/allpapers-mirrors` | Which shadow-library mirrors are usable right now — verifies content, not status |
 | `scripts/allpapers-bibtex` | Composite normalised BibTeX merged across every index that has the work |
-| `scripts/allpapers-fetch` | Fetch source + PDF, stage or promote, and write the `verification/bib.md` record |
+| `scripts/allpapers-fetch` | Fetch source + PDF, stage or promote, and write the `verification/bib.md` record (`--into`, `--no-record`) |
 
 ## Reference files
 
@@ -356,7 +411,7 @@ the material for 1 and 3 without re-running anything.
 | `reference/unpaywall.md` | Unpaywall API, response shape, the broken search endpoint |
 | `reference/other-indices.md` | OpenAlex, Crossref, Europe PMC, Semantic Scholar, NCBI, DOAJ, OpenAIRE |
 | `reference/scholar.md` | Google Scholar scraping, the silent block, SerpApi |
-| `reference/gemini.md` | Gemini grounded search: endpoints, request shapes, citation extraction |
+| `reference/gemini.md` | Gemini grounded search: the API and `agy` backends, request shapes, citation extraction |
 | `reference/bibtex.md` | How the composite entry is merged, the per-field trust order, normalisation |
 | `reference/scihub.md` | scihub-cli, its defects, and the manual fallback |
 | `reference/verification.md` | `verification/bib.md` and `verification/equations.py` |

@@ -312,11 +312,15 @@ def run_gemini(query: str, key: str, timeout: int) -> dict:
     given key can reach is not knowable in advance — so try the newer
     Interactions API and fall back to generateContent on 404/400/403.
 
-    Verified end to end on 2026-08-26 with a real key: the Interactions endpoint
-    answered, and _parse_interactions pulled out the model text, the citations
-    and the Google Search queries Gemini actually ran. The generateContent
-    fallback is still unexercised — it exists for keys that cannot reach
-    Interactions. See reference/gemini.md.
+    Both verified end to end on 2026-08-26 with a real key, each parser run
+    against its own live response: Interactions answered and _parse_interactions
+    pulled out the text, citations and queries; generateContent answered 200 and
+    _parse_generate_content pulled 8 citations and 3 webSearchQueries out of it.
+
+    generateContent grounds only when the model decides to search. Asked for the
+    Transformer paper it answered from recall with no groundingMetadata key at
+    all — 200, real text, zero citations, no error. Empty citations therefore
+    mean "ungrounded answer", not "search found nothing". See reference/gemini.md.
     """
     attempts = [
         (GEMINI_URL,
@@ -568,6 +572,15 @@ def main() -> int:
                 print("\n  cited sources:")
                 for c in gem["citations"]:
                     print(f"    {c['title'] or '(untitled)'} — {c['url']}")
+            elif gem.get("text"):
+                # No citations is not "the web had nothing" — it means the model
+                # never ran a search and answered from its own weights, which the
+                # API reports by simply omitting the grounding metadata.
+                # stdout, not stderr: this is a property of the answer and has
+                # to stay next to it. stderr would float out of order under a pipe.
+                print("\n  no cited sources: this answer is ungrounded — model "
+                      "recall, not search results.\n  Treat every claim in it as "
+                      "unverified and confirm the identifiers below.")
             ids = identifiers_in(gem.get("text", ""))
             if ids:
                 print("\n  identifiers named above — confirm each one, a grounded "
