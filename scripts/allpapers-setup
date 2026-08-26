@@ -23,27 +23,35 @@ from pathlib import Path
 CONFIG = Path(os.getenv("ALLPAPERS_CONFIG_DIR", Path.home() / ".config" / "allpapers")) / "config.json"
 SCIHUB_CONFIG = Path.home() / ".scihub-cli" / "config.json"
 
-# key -> (essential?, env var, what it unlocks, where to get it)
+# key -> (essential?, env var, which services use it and how, what it unlocks,
+#         where to register for one)
 FIELDS = {
     "email": (
         True, "ALLPAPERS_EMAIL",
+        "Unpaywall: required. OpenAlex, Crossref: optional, but joins their "
+        "polite pools. scihub-cli: reuses it for Unpaywall",
         "Unpaywall (required by its API), plus the OpenAlex and Crossref polite pools",
-        "your own address; it is sent to those APIs as a contact, nothing else",
+        "no registration — any address you own. https://unpaywall.org/products/api "
+        "documents the requirement",
     ),
     "core_api_key": (
         False, "CORE_API_KEY",
+        "CORE: optional, but anonymous CORE returns no fullText field",
         "CORE full text and 10x the anonymous rate limit "
         "(anonymous is 10 requests/10 min and returns no fullText field)",
         "https://core.ac.uk/services/api#form  (free, instant)",
     ),
     "openalex_api_key": (
         False, "OPENALEX_API_KEY",
+        "OpenAlex: optional; required for its cached full text",
         "OpenAlex's cached full text (GROBID TEI XML for ~49M works, $0.01/file) "
         "and a $1/day metadata budget instead of the anonymous $0.10/day",
         "https://openalex.org/users  (free, instant)",
     ),
     "gemini_api_key": (
         False, "GEMINI_API_KEY",
+        "Gemini grounded search: required for the API backend. Not needed for "
+        "the agy backend, which signs in with your Google account instead",
         "grounded web search — Gemini runs real Google Search queries and returns "
         "answers with url_citation annotations, which finds papers a plain web "
         "search misses (the API rejects unauthenticated callers with HTTP 403)",
@@ -51,22 +59,44 @@ FIELDS = {
     ),
     "ncbi_api_key": (
         False, "NCBI_API_KEY",
+        "PubMed, PMC, NCBI eutils: optional, raises the rate limit",
         "NCBI eutils at 10 requests/sec instead of 3 — the anonymous limit is "
         "enforced and returns HTTP 429 mid-sequence, which reads as a lookup "
         "failure rather than a rate limit",
-        "https://www.ncbi.nlm.nih.gov/account/settings/  (free)",
+        "https://account.ncbi.nlm.nih.gov/  then Account settings -> API Key "
+        "Management  (free)",
     ),
     "semantic_scholar_api_key": (
         False, "SEMANTIC_SCHOLAR_API_KEY",
+        "Semantic Scholar: optional, raises the shared-pool rate limit",
         "higher Semantic Scholar rate limits",
-        "https://www.semanticscholar.org/product/api#api-key",
+        "https://www.semanticscholar.org/product/api#api-key  (free, but "
+        "manually reviewed — expect a wait)",
     ),
     "serpapi_key": (
         False, "SERPAPI_KEY",
+        "Google Scholar: optional; without it Scholar is scraped and will "
+        "eventually serve a CAPTCHA",
         "Google Scholar via SerpApi instead of scraping (paid, optional)",
-        "https://serpapi.com/manage-api-key",
+        "https://serpapi.com/users/sign_up  then https://serpapi.com/manage-api-key "
+        "(100 free searches/month, then paid)",
     ),
 }
+
+# Services that need no key at all, listed so --check answers "what do I still
+# have to sign up for?" completely rather than only for the keyed ones.
+KEYLESS = [
+    ("paperclip", "browser sign-in on first use; free tier, then "
+                  "https://paperclip.gxl.ai/keys"),
+    ("arXiv", "no key, no registration"),
+    ("Crossref", "no key; the email above joins the polite pool"),
+    ("Europe PMC", "no key, no registration"),
+    ("DataCite / OpenAIRE", "no key, no registration"),
+    ("LibGen", "no key; json.php is open"),
+    ("Anna's Archive", "no key for /dyn/; a donor key unlocks fast downloads: "
+                       "https://annas-archive.org/donate"),
+    ("Sci-Hub", "no key, no registration"),
+]
 
 
 def load() -> dict:
@@ -84,7 +114,7 @@ def load() -> dict:
             cfg.update({k: v for k, v in json.loads(CONFIG.read_text()).items() if v})
         except (json.JSONDecodeError, OSError):
             pass
-    for key, (_, env, _, _) in FIELDS.items():       # env wins over everything
+    for key, (_, env, _, _, _) in FIELDS.items():    # env wins over everything
         if os.getenv(env):
             cfg[key] = os.environ[env]
     return cfg
@@ -126,21 +156,28 @@ def paperclip_state() -> str:
 def check(cfg: dict) -> int:
     print(f"paperclip                 : {paperclip_state()}")
     missing_essential = False
-    for key, (essential, env, unlocks, where) in FIELDS.items():
+    for key, (essential, env, service, unlocks, where) in FIELDS.items():
         tag = "required" if essential else "optional"
-        if cfg.get(key):
-            print(f"{key:<26}: set ({tag})")
-        else:
-            print(f"{key:<26}: MISSING ({tag}) — {unlocks}")
-            print(f"{'':<28}get it: {where}")
+        state = "set" if cfg.get(key) else "MISSING"
+        print(f"{key:<26}: {state} ({tag})")
+        print(f"{'':<28}used by: {service}")
+        if not cfg.get(key):
+            print(f"{'':<28}unlocks: {unlocks}")
             if essential:
                 missing_essential = True
+        print(f"{'':<28}register: {where}")
+    print("\nNo key or registration needed for:")
+    for name, note in KEYLESS:
+        print(f"  {name:<22} {note}")
     if CONFIG.exists():
         print(f"\nconfig file: {CONFIG}")
     else:
         # Anything shown as set was seeded from scihub-cli or the environment.
         print(f"\nconfig file: {CONFIG} — not written yet; values shown as set "
               f"came from {SCIHUB_CONFIG} or the environment")
+    print("Any setting can also come from its env var: the key name in upper "
+          "case, except\nemail, whose variable is ALLPAPERS_EMAIL. The "
+          "environment overrides the config file.")
     return 1 if missing_essential else 0
 
 
@@ -152,7 +189,7 @@ def main() -> int:
         return check(cfg)
 
     if args and args[0] == "--env":
-        for key, (_, env, _, _) in FIELDS.items():
+        for key, (_, env, _, _, _) in FIELDS.items():
             if cfg.get(key):
                 print(f"export {env}={cfg[key]!r}")
         return 0
@@ -178,13 +215,17 @@ def main() -> int:
         print(__doc__)
         return 2
 
-    # Interactive: ask only for what is missing.
+    # Interactive: show every service and where to register, prompt only for
+    # what is still missing.
     print(f"paperclip: {paperclip_state()}\n")
-    for key, (essential, _, unlocks, where) in FIELDS.items():
+    for key, (essential, _, service, unlocks, where) in FIELDS.items():
+        tag = "required" if essential else "optional"
+        print(f"{key} ({tag}) — used by: {service}")
+        print(f"  unlocks: {unlocks}")
+        print(f"  register: {where}")
         if cfg.get(key):
+            print("  already set — leaving it alone\n")
             continue
-        print(f"{key} ({'required' if essential else 'optional'}) unlocks {unlocks}")
-        print(f"  where to get it: {where}")
         try:
             value = input(f"  {key} (blank to skip): ").strip()
         except EOFError:
@@ -193,6 +234,10 @@ def main() -> int:
         if value:
             cfg[key] = value
         print()
+    print("No key or registration needed for:")
+    for name, note in KEYLESS:
+        print(f"  {name:<22} {note}")
+    print()
     save(cfg)
     return check(cfg)
 

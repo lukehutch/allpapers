@@ -24,6 +24,14 @@ than one found by either alone, and that is visible in the output.
 `--gemini` adds a channel that is not paperclip at all: Gemini with Google Search
 grounding, which searches the live web and returns url_citation annotations. It
 reaches publisher pages, theses and lab sites that no index here covers.
+
+Two backends serve that channel and `--gemini-backend` picks between them:
+
+    api   generativelanguage.googleapis.com, needs GEMINI_API_KEY. Billed to a
+          Google Cloud account; Gemini subscription credits do not pay for it.
+    agy   the Antigravity CLI, which signs in with your ordinary Google account.
+          No API key, no cloud billing, and the same Google Search behind it.
+    auto  api when a key is configured, otherwise agy. The default.
 """
 from __future__ import annotations
 
@@ -184,6 +192,74 @@ GEMINI_PROMPT = (
     "Request: ")
 
 
+# `agy models` on 2026-08-26 listed gemini-3.7-flash-{high,medium,low} as the
+# newest Flash tier. High is the right one here: a literature sweep is worth more
+# reasoning than a chat reply.
+AGY_MODEL = os.getenv("ALLPAPERS_AGY_MODEL", "gemini-3.7-flash-high")
+
+# agy asks gnome-keyring for its stored credentials, and the unlock dialog steals
+# the terminal — the run then blocks forever with no output. Presenting as a
+# remote SSH session with no display makes it fall back to its own token store.
+# Measured working on 2026-08-26; without these three it hangs.
+AGY_ENV = {"DISPLAY": "", "SSH_CLIENT": "127.0.0.1 12345 22", "SSH_TTY": "/dev/pts/0"}
+
+MD_URL = re.compile(r"\[([^\]]*)\]\((https?://[^\s)]+)\)")
+BARE_URL = re.compile(r"(?<![\(<])\bhttps?://[^\s<>)\]}\"'`*|]+")
+
+
+def _urls_in(text: str) -> list[dict]:
+    """Citations out of a plain-text answer.
+
+    The API backend returns annotations; agy returns prose, so the links have to
+    come out of the markdown. Titled links first, then bare URLs the pattern
+    above did not already claim.
+    """
+    out, seen = [], set()
+    for m in MD_URL.finditer(text or ""):
+        url = m.group(2).rstrip(".,;")
+        if url not in seen:
+            seen.add(url)
+            out.append({"url": url, "title": m.group(1).strip()})
+    for m in BARE_URL.finditer(text or ""):
+        url = m.group(0).rstrip(".,;")
+        if url not in seen:
+            seen.add(url)
+            out.append({"url": url, "title": ""})
+    return out
+
+
+def run_agy(query: str, timeout: int) -> dict:
+    """Grounded search through the Antigravity CLI instead of the Gemini API.
+
+    agy is backed by the same Google Search, but authenticates with the user's
+    Google account rather than a billed API key. It answers in prose with no
+    structured grounding metadata, so the citations are parsed back out of the
+    text and the queries it ran are not recoverable.
+
+    Verified end to end on 2026-08-26 against agy 1.1.12.
+    """
+    if not shutil.which("agy"):
+        return {"error": "agy is not installed — https://antigravity.google/"}
+    env = {**os.environ, **AGY_ENV}
+    try:
+        r = subprocess.run(
+            ["agy", "-p", GEMINI_PROMPT + query, "--model", AGY_MODEL],
+            capture_output=True, text=True, timeout=timeout, env=env,
+            stdin=subprocess.DEVNULL)
+    except subprocess.TimeoutExpired:
+        return {"error": f"agy timed out after {timeout}s"}
+    except OSError as e:
+        return {"error": f"agy: {e}"}
+    if r.returncode != 0:
+        return {"error": f"agy exited {r.returncode}: "
+                         f"{(r.stderr or r.stdout).strip()[:300]}"}
+    text = r.stdout.strip()
+    if not text:
+        return {"error": "agy returned nothing"}
+    return {"model": AGY_MODEL, "endpoint": "agy", "text": text,
+            "search_queries": [], "citations": _urls_in(text), "notes": []}
+
+
 def _gemini_error(r) -> str:
     try:
         msg = r.json()
@@ -236,11 +312,11 @@ def run_gemini(query: str, key: str, timeout: int) -> dict:
     given key can reach is not knowable in advance — so try the newer
     Interactions API and fall back to generateContent on 404/400/403.
 
-    Both shapes were probed live on 2026-08-25 without a key and both returned
-    HTTP 403 PERMISSION_DENIED, i.e. they passed payload validation and failed
-    only at authentication. The *responses* are unverified: no key exists on this
-    machine, so the parsing below is written to the documented shapes and has
-    never met a real one. See reference/gemini.md.
+    Verified end to end on 2026-08-26 with a real key: the Interactions endpoint
+    answered, and _parse_interactions pulled out the model text, the citations
+    and the Google Search queries Gemini actually ran. The generateContent
+    fallback is still unexercised — it exists for keys that cannot reach
+    Interactions. See reference/gemini.md.
     """
     attempts = [
         (GEMINI_URL,
@@ -343,6 +419,12 @@ def main() -> int:
     ap.add_argument("--gemini", action="store_true",
                     help="also run Gemini grounded Google Search")
     ap.add_argument("--gemini-only", action="store_true", help="skip paperclip")
+    ap.add_argument("--gemini-backend", default="auto",
+                    choices=("auto", "api", "agy"),
+                    help="api = Gemini API (needs GEMINI_API_KEY, billed to a "
+                         "Google Cloud account); agy = the Antigravity CLI, "
+                         "which uses your Google account sign-in and no key; "
+                         "auto = api if a key is configured, else agy (default)")
     ap.add_argument("--timeout", type=int, default=300)
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args()
@@ -358,7 +440,7 @@ def main() -> int:
               "curl -fsSL https://paperclip.gxl.ai/install.sh | bash", file=sys.stderr)
         rankers = []
 
-    key = ""
+    key, backend = "", ""
     if args.gemini or args.gemini_only:
         cfg = {}
         cfgpath = Path(os.getenv("ALLPAPERS_CONFIG_DIR",
@@ -369,14 +451,26 @@ def main() -> int:
             except (ValueError, OSError):
                 cfg = {}
         key = os.getenv("GEMINI_API_KEY") or cfg.get("gemini_api_key", "")
-        if not key:
-            print("allpapers-search: no Gemini key. Get one free at "
-                  "https://aistudio.google.com/apikey then run\n"
-                  "  scripts/allpapers-setup --set gemini_api_key=...",
-                  file=sys.stderr)
-            if args.gemini_only:
-                return 2
-            key = ""
+        backend = args.gemini_backend
+        if backend == "auto":
+            backend = "api" if key else ("agy" if shutil.which("agy") else "")
+        if backend == "api" and not key:
+            print("allpapers-search: --gemini-backend api needs a key. Get one "
+                  "free at https://aistudio.google.com/apikey then run\n"
+                  "  scripts/allpapers-setup --set gemini_api_key=...\n"
+                  "Or use --gemini-backend agy, which signs in with your Google "
+                  "account instead.", file=sys.stderr)
+            backend = ""
+        elif backend == "agy" and not shutil.which("agy"):
+            print("allpapers-search: --gemini-backend agy needs the Antigravity "
+                  "CLI on PATH — https://antigravity.google/", file=sys.stderr)
+            backend = ""
+        elif not backend:
+            print("allpapers-search: no Gemini key and no agy on PATH. Get a key "
+                  "free at https://aistudio.google.com/apikey, or install "
+                  "Antigravity from https://antigravity.google/", file=sys.stderr)
+        if not backend and args.gemini_only:
+            return 2
 
     merged: dict = {}
     order: list = []
@@ -387,7 +481,11 @@ def main() -> int:
     with cf.ThreadPoolExecutor(max_workers=len(rankers) + 1) as pool:
         futures = {pool.submit(run_paperclip, args.query, rk, args): rk
                    for rk in rankers}
-        gfut = pool.submit(run_gemini, args.query, key, args.timeout) if key else None
+        gfut = None
+        if backend == "api":
+            gfut = pool.submit(run_gemini, args.query, key, args.timeout)
+        elif backend == "agy":
+            gfut = pool.submit(run_agy, args.query, args.timeout)
 
         for fut in cf.as_completed(futures):
             rk = futures[fut]
@@ -425,7 +523,7 @@ def main() -> int:
                           "limit": args.limit, "sort": args.sort,
                           "result_sets": sets, "notes": notes,
                           "results": rows, "gemini": gem}, indent=2))
-        return 0 if rows or gem.get("citations") else 1
+        return 0 if rows or gem.get("text") or gem.get("citations") else 1
 
     if rows:
         multi = sum(1 for h in rows if len(h["found_by"]) > 1)
@@ -477,7 +575,7 @@ def main() -> int:
                 for i in ids:
                     print(f"    scripts/allpapers-locate {i}")
 
-    return 0 if rows or gem.get("citations") else 1
+    return 0 if rows or gem.get("text") or gem.get("citations") else 1
 
 
 if __name__ == "__main__":

@@ -26,6 +26,14 @@ Rejections are recorded only for papers that genuinely looked relevant. A search
 hit that the title and abstract rule out is not written down at all; the record
 is a note to a future session about a real judgement call, not a search log.
 
+The verification directory is created **in the current working directory**, as
+`./verification/`, the first time a paper is kept, rejected or retired. Two
+switches change that:
+
+    --into DIR    put it somewhere else (or set ALLPAPERS_VERIFICATION_DIR once)
+    --no-record   write nothing to it at all — fetch to a temp directory,
+                  print the report, leave no trace on disk under the repository
+
 Layout under the verification directory:
 
     verification/
@@ -46,6 +54,7 @@ import hashlib
 import importlib.machinery
 import importlib.util
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -594,11 +603,18 @@ def main() -> int:
         description="Fetch a paper's source and PDF, then record the decision "
                     "about it in verification/bib.md.")
     ap.add_argument("identifier", help="DOI, arXiv ID, PMID, PMCID, URL or title")
-    ap.add_argument("--into", default="verification", metavar="DIR",
-                    help="verification directory (default: ./verification)")
+    ap.add_argument("--into", metavar="DIR",
+                    default=os.getenv("ALLPAPERS_VERIFICATION_DIR", "verification"),
+                    help="verification directory; relative paths are resolved "
+                         "against the current directory "
+                         "(default: ./verification, or $ALLPAPERS_VERIFICATION_DIR)")
     ap.add_argument("--stage", action="store_true",
                     help="download to a temp directory and stop; nothing is "
                          "written to the verification directory")
+    ap.add_argument("--no-record", action="store_true",
+                    help="never create the verification directory or anything "
+                         "inside it: fetch to a temp directory, print the "
+                         "report and stop")
     ap.add_argument("--promote", metavar="STAGEDIR",
                     help="copy an already-staged directory in and record it")
     ap.add_argument("--reject", action="store_true",
@@ -625,6 +641,11 @@ def main() -> int:
     if sum(bool(x) for x in modes) > 1:
         print("allpapers-fetch: --stage, --promote, --reject and --retire are "
               "exclusive", file=sys.stderr)
+        return 2
+    if args.no_record and any(modes[1:]):
+        print("allpapers-fetch: --no-record cannot be combined with --promote, "
+              "--reject or --retire — those modes exist only to write the "
+              "record", file=sys.stderr)
         return 2
     if any(modes[1:]) and not args.justification:
         print("allpapers-fetch: --justification is required to promote, reject or "
@@ -672,7 +693,7 @@ def main() -> int:
         pf = dest / "PROVENANCE.json"
         prov = json.loads(pf.read_text()).get("artefacts", []) if pf.exists() else []
     else:
-        if args.stage:
+        if args.stage or args.no_record:
             # A colon in the path makes the printed follow-up command read as an
             # scp target, so keep the staging name shell-plain.
             safe = re.sub(r"[^A-Za-z0-9._-]", "_", key)
@@ -694,13 +715,20 @@ def main() -> int:
              "abstract_source": args.abstract_source,
              "artefacts": prov}, indent=2), encoding="utf-8")
 
-    if args.stage:
+    if args.stage or args.no_record:
         if args.json:
             print(json.dumps({"cite_key": key, "staged": str(dest),
+                              "recorded": False,
                               "consulted": consulted, "bibtex": bib,
                               "abstract": args.abstract_text,
                               "abstract_source": args.abstract_source,
                               "artefacts": prov}, indent=2))
+        elif args.no_record:
+            report(key, bib, consulted, prov, locations, dest, None,
+                   args.abstract_source)
+            print(f"\n--no-record: {root}/ was not created and nothing was "
+                  f"written to it.\nThe files above are in a temp directory and "
+                  f"are yours to delete.")
         else:
             report(key, bib, consulted, prov, locations, dest, None,
                    args.abstract_source)
