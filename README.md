@@ -324,7 +324,10 @@ source; it discards relevance entirely and is refused alongside
 
 Add `--gemini` to run Gemini grounded web search in parallel with paperclip, or
 `--gemini-only` to skip paperclip. It returns *claims with citations*, so every
-result is a lead to verify, never a source to quote.
+result is a lead to verify, never a source to quote. `--gemini-backend agy` runs
+it through the Antigravity CLI instead of the API, using an ordinary Google login
+rather than a billed key. If the output says *"no cited sources: this answer is
+ungrounded"*, the model never searched and nothing in the answer may be relied on.
 
 ### Getting the full text
 
@@ -534,7 +537,7 @@ and 3 without re-running anything.
 | `reference/search.md` | Ranking modes, result limits, sort order, how to word a query |
 | `reference/other-indices.md` | OpenAlex, Crossref, Europe PMC, Semantic Scholar, NCBI, DOAJ, OpenAIRE |
 | `reference/scholar.md` | Google Scholar URL patterns, the silent block, CAPTCHA handling, SerpApi |
-| `reference/gemini.md` | Gemini grounded search: endpoints, request shapes, citation extraction |
+| `reference/gemini.md` | Gemini grounded search: the API and `agy` backends, request shapes, citation extraction |
 | `reference/bibtex.md` | The composite merge, the per-field trust order, every normalisation applied |
 | `reference/scihub.md` | scihub-cli, its defects, mirror state, the manual fallback |
 | `reference/shadow-libraries.md` | LibGen/Anna's Archive/Z-Library APIs, live mirror status, SLUM, the traps |
@@ -788,6 +791,13 @@ so you can read just the ones you are about to use; full detail is in the matchi
 
 ### Gemini grounded search
 
+- **Grounding is the model's choice, and an ungrounded answer looks exactly like a
+  grounded one.** Asked which paper introduced the Transformer architecture,
+  `generateContent` returned HTTP 200, a correct answer, and no `groundingMetadata`
+  key at all — no queries, no citations, no error. It answered from its own weights
+  without searching. The same question aimed at recent work came back with eight
+  grounded citations. So an empty citation list means *ungrounded*, not *nothing
+  found*, and `allpapers-search` now prints that warning rather than a bare answer.
 - **Citation URLs are opaque Vertex redirects** of the form
   `https://vertexaisearch.cloud.google.com/grounding-api-redirect/<token>`. They
   resolve in a browser, but the token says nothing about the destination, so they
@@ -802,7 +812,10 @@ so you can read just the ones you are about to use; full detail is in the matchi
   `--gemini-backend agy` shells out to the Antigravity CLI instead, which signs
   in with an ordinary Google account, needs no key, and has the same Google
   Search behind it. `auto`, the default, uses the API when a key is configured
-  and falls back to `agy`. Both were verified end to end on 2026-08-26.
+  and falls back to `agy`. Both were verified end to end on 2026-08-26, and so
+  were both API endpoints: `interactions` returned text, the queries it ran and 4
+  citations, and the `generateContent` fallback returned 8 citations out of
+  `groundingChunks[].web` plus 3 `webSearchQueries`.
 - **The `agy` backend returns prose, not grounding metadata.** The API reports the
   Google Search queries it ran and annotates each citation; `agy` returns a plain
   answer, so `allpapers-search` parses the links back out of the Markdown and the
