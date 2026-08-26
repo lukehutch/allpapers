@@ -108,6 +108,30 @@ fine-tuned on abstracts, so a pasted abstract works best, one or two sentences
 describing the *method or problem structure* next best, and bare keywords worst.
 `--ranking analogical` finds the same structural method in unrelated fields.
 
+### The rest of the surface
+
+Rarely needed here, but there is no other place that lists them:
+
+```bash
+paperclip ask-image /papers/<id>/figures/f1.png "what does the y axis measure?"
+paperclip ask-image ... --fn describe|extract-data   # prose, or the numbers
+paperclip fetch <url-or-doi>            # download into /clipboard/ using your browser cookies
+paperclip import refs.bib               # a bibliography, local PDFs, or a paper's
+paperclip import <paper-id>             #   reference list via Semantic Scholar
+paperclip upload FILE --into FOLDER     # the ONLY way to persist a file you generated
+paperclip cp /papers/<id> /clipboard/x/ # zero-copy corpus link
+paperclip skills show proteins          # read before any protein SQL
+paperclip skills show paperclip-meta-analysis   # read before a systematic review
+```
+
+`paperclip repo` (alias `git`) tracks a paper collection plus *verifiable claims*;
+`repo commit` re-checks each claim against the full text and marks it `[OK]` or
+`[X]`. Subcommands: `init`, `add <id> "claim" [--lines L45-L52]`, `commit -m`,
+`status`, `log`, `checkout`, `branch`, `merge`, `export bibtex|ris|csv|markdown`,
+`history`, `citations`. **Do not start one unless the user asks** — this skill's
+own `verification/bib.md` is the record, and while a repo is checked out every
+search is written to its audit trail.
+
 **`reference/search.md` is the full treatment** of the three lookup kinds, the
 four rankings, result limits, sort order, the narrowing filters new in 0.7.38
 (`--bool`, `--full-text`, `--has-full-text`, `--has-section`, `--exclude-*`,
@@ -152,4 +176,6 @@ four rankings, result limits, sort order, the narrowing filters new in 0.7.38
 - **While a repo is checked out, every search is written to its audit trail.** Run
   `paperclip repo checkout -` before unrelated exploratory work.
 - `paperclip update` regenerates `.claude/skills/paperclip/SKILL.md`, so never
-  hand-edit that file.
+  hand-edit that file — and note that this recreates the standalone `paperclip`
+  skill that `allpapers` replaced. If it reappears after an update, delete
+  `~/.claude/skills/paperclip/` again.
