@@ -105,10 +105,12 @@ Anything found here needs its identity confirmed against the metadata from rung 
 before it is quoted — a file with the right title may be a different version, a
 preprint, or a slide deck.
 
-## Rung 6 — Sci-Hub, last resort only
+## Rung 6 — shadow libraries, last resort only
 
 Only when rungs 1–5 have all failed and the paper genuinely has no open copy.
-This is not an open service and holds unauthorised copies. See `scihub.md`.
+None of these is an open service; all hold unauthorised copies. Full detail,
+including every measured trap, is in `shadow-libraries.md`; `scihub.md` covers the
+`scihub-cli` wrapper.
 
 Hard rules, from the project standards:
 
@@ -116,6 +118,38 @@ Hard rules, from the project standards:
 - The mirror URL goes in `verification/bib.md`, never in the `.bib` entry.
 - Keep the file outside the repository. Never commit it.
 - APS `journals.aps.org` blocks automated fetching. Do not fight it.
+
+### Order within the rung
+
+1. **LibGen** — the only one with a real JSON API, and it needs no key:
+   `json.php?object=e&fields=*&doi=<DOI>` gives the edition and its file md5s,
+   then `object=f&fields=*&ids=<f_id>` gives `extension` and `filesize` before you
+   commit to a download. Use `libgen.li`.
+2. **Sci-Hub** — `sci-hub.ee` first, it carries the search form; then `.ru`, `.su`,
+   `.box`; then `.al`, `.mk`. Manual fallback: `https://sci.bban.top/pdf/<DOI>.pdf`
+   with a browser User-Agent.
+3. **Anna's Archive** — `/dyn/` endpoints only, since the HTML sits behind
+   DDoS-Guard. The download half needs **paid membership**, so this is a dead end
+   unless the user already has a key.
+4. **welib.org**, then Z-Library — browser only, human in the loop.
+
+### Check the mirrors before concluding a paper is unavailable
+
+Mirrors churn, and an HTTP 200 proves nothing — `sci-hub.tf` answers 200 and
+redirects to an ad landing page. Run the content-verifying checker:
+
+```bash
+scripts/allpapers-mirrors              # every service
+scripts/allpapers-mirrors libgen       # one service
+scripts/allpapers-mirrors --slum       # plus what open-slum.org reports
+```
+
+<https://open-slum.org/> is the live status source, checking every 5 minutes. Its
+`PROTECTED` status means "behind an anti-bot challenge", i.e. browser-only. It has
+no API, it reports `UP` for hosts that serve nothing usable, and it disagrees with
+direct measurement in both directions — so use it to narrow candidates, then
+verify. Do not use `sci-hub.pub` or `scihub.help`: both are stale and both list
+domains that are dead.
 
 ---
 

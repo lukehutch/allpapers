@@ -285,7 +285,11 @@ def run_gemini(query: str, key: str, timeout: int) -> dict:
     return {"error": " | ".join(errors)}
 
 
-IDENT = re.compile(r"\b(10\.\d{4,9}/[^\s,;)\]}\"'<>]+|arXiv:\s?\d{4}\.\d{4,5})", re.I)
+# Markdown delimiters have to be excluded as well as prose punctuation: a grounded
+# answer writes DOIs as `10.48550/arXiv.1706.03762` or **10.1038/nature14539**, and
+# a captured trailing backtick lands in the `allpapers-locate <id>` command printed
+# below, where it opens command substitution and hangs the shell on paste.
+IDENT = re.compile(r"\b(10\.\d{4,9}/[^\s,;)\]}\"'<>`*|]+|arXiv:\s?\d{4}\.\d{4,5})", re.I)
 
 
 def identifiers_in(text: str) -> list[str]:

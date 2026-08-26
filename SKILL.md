@@ -1,6 +1,6 @@
 ---
 name: allpapers
-description: Find and retrieve the full text of scientific papers from paperclip, arXiv LaTeX source, CORE, Unpaywall, OpenAlex, Europe PMC, Google Scholar, Gemini grounded search and Sci-Hub as a last resort. Use when asked to look up a paper, get its full text, search the literature by keyword or by meaning, check what a paper actually says, verify a citation, or build a bibliography. Always prefers parseable text formats over PDF.
+description: Find and retrieve the full text of scientific papers from paperclip, arXiv LaTeX source, CORE, Unpaywall, OpenAlex, Europe PMC, Google Scholar, Gemini grounded search and shadow libraries (LibGen, Sci-Hub, Anna's Archive, Z-Library) as a last resort. Use when asked to look up a paper, get its full text, search the literature by keyword or by meaning, check what a paper actually says, verify a citation, or build a bibliography. Always prefers parseable text formats over PDF.
 ---
 
 # allpapers
@@ -186,7 +186,9 @@ multi-file submission.
 ### When nothing free is found
 
 Work down `reference/ladder.md`: Google Scholar (`reference/scholar.md`), then web
-search, then `reference/scihub.md` as the last resort. Do not skip rungs to get to
+search, then `reference/shadow-libraries.md` as the last resort (LibGen first,
+then Sci-Hub, then Anna's Archive, then welib/Z-Library; `reference/scihub.md`
+covers the scihub-cli wrapper). Do not skip rungs to get to
 the bottom faster.
 
 **A Google Scholar miss is often not a miss.** Scholar refuses some callers with a
@@ -324,6 +326,7 @@ the material for 1 and 3 without re-running anything.
 | `scripts/allpapers-locate` | One paper → every free full-text location, ranked most-parseable first |
 | `scripts/allpapers-search` | Keyword, semantic, hybrid and analogical search, optionally with Gemini grounded web search |
 | `scripts/arxiv-source` | arXiv submitted source → unpacked LaTeX in a temp directory |
+| `scripts/allpapers-mirrors` | Which shadow-library mirrors are usable right now — verifies content, not status |
 | `scripts/allpapers-bibtex` | Composite normalised BibTeX merged across every index that has the work |
 | `scripts/allpapers-fetch` | Fetch source + PDF, stage or promote, and write the `verification/bib.md` record |
 

@@ -1,0 +1,211 @@
+#!/usr/bin/env python3
+"""Check which shadow-library mirrors are actually usable right now.
+
+    allpapers-mirrors                    # check every service
+    allpapers-mirrors libgen scihub      # check named services only
+    allpapers-mirrors --json
+    allpapers-mirrors --slum             # also show what open-slum.org reports
+
+An HTTP 200 is not evidence of a working mirror, so this checks content:
+
+  * `sci-hub.tf` answers 200 and redirects offsite to an ad/scam landing page.
+  * `yqrii5.org` and `wbsg8v.xyz` answer 200 at the TCP level but every path
+    returns "Link expired or invalid" — they are signed-URL download edges for
+    Anna's Archive, not browsable mirrors.
+  * Most Anna's Archive and Z-Library domains answer with a DDoS-Guard or
+    Cloudflare interstitial, which is a 403/503 wearing a normal-looking page.
+
+So a domain passes only when the final URL is still on the host we asked for and
+the body carries a marker the real service serves. Statuses match the vocabulary
+open-slum.org uses, so the two can be read side by side.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import sys
+from concurrent.futures import ThreadPoolExecutor
+
+import requests
+
+# A browser User-Agent is not evasion here, it is correctness: several of these
+# hosts serve a stub or an interstitial to anything that does not look like a
+# browser, which would make every result a false negative.
+UA = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+      "(KHTML, like Gecko) Chrome/126.0 Safari/537.36")
+TIMEOUT = int(os.getenv("ALLPAPERS_MIRROR_TIMEOUT", "25"))
+
+UP, PROTECTED, DEGRADED, DOWN = "UP", "PROTECTED", "DEGRADED", "DOWN"
+
+# Anti-bot interstitials. These arrive with a variety of status codes, so the
+# body is the only reliable signal.
+CHALLENGE = re.compile(
+    r"ddos-guard|checking your browser|just a moment|cf-browser|"
+    r"enable javascript and cookies|attention required",
+    re.I,
+)
+# Bodies that mean "this host is real but will never serve you a document".
+NOT_AN_ENTRY_POINT = re.compile(r"link expired or invalid", re.I)
+
+# path, and a marker that only the genuine service returns on that path.
+SERVICES = {
+    "libgen": {
+        "note": "JSON API, no key — try this first",
+        "path": "/json.php?object=e&fields=*&doi=10.1038/nature14539",
+        # PHP's json_encode escapes forward slashes, so the DOI comes back as
+        # "10.1038\/nature14539" — a naive match on the plain DOI finds nothing.
+        "marker": re.compile(r'"doi"\s*:\s*"10\.1038\\?/nature14539"', re.I),
+        "domains": ["libgen.li", "libgen.bz", "libgen.vg", "libgen.la",
+                    "libgen.gl", "libgen.mx", "libgen.rs", "libgen.is"],
+    },
+    "scihub": {
+        "note": "sci-hub.ee carries the search form",
+        "path": "/",
+        "marker": re.compile(r"sci-?hub|save\s+everyone|донат", re.I),
+        "domains": ["sci-hub.ee", "sci-hub.ru", "sci-hub.su", "sci-hub.box",
+                    "sci-hub.al", "sci-hub.mk", "sci-hub.ren", "sci-hub.wf",
+                    "sci-hub.st", "sci-hub.se", "sci-hub.red", "sci-hub.tf",
+                    "sci-hub.hkvisa.net"],
+    },
+    "annas": {
+        "note": "/dyn/ bypasses DDoS-Guard; downloads need paid membership",
+        "path": "/dyn/api/fast_download.json",
+        "marker": re.compile(r"stable JSON API|download_url", re.I),
+        "domains": ["annas-archive.gd", "annas-archive.pk", "annas-archive.gl",
+                    "annas-archive.li", "annas-archive.org", "annas-archive.se"],
+    },
+    "zlibrary": {
+        "note": "browser-only in practice; welib.org is the usable one",
+        "path": "/",
+        "marker": re.compile(r"z-?library|welib|books", re.I),
+        "domains": ["welib.org", "z-library.sk", "1lib.sk", "z-lib.gl",
+                    "z-lib.gd", "go-to-library.sk", "library-access.sk"],
+    },
+}
+
+
+def check(service: str, domain: str) -> dict:
+    """Fetch one domain and decide whether it is genuinely usable."""
+    spec = SERVICES[service]
+    url = f"https://{domain}{spec['path']}"
+    row = {"service": service, "domain": domain, "status": DOWN, "detail": ""}
+    try:
+        r = requests.get(url, headers={"User-Agent": UA}, timeout=TIMEOUT,
+                         allow_redirects=True)
+    except requests.exceptions.SSLError:
+        row["detail"] = "TLS failure"
+        return row
+    except requests.exceptions.ConnectionError:
+        row["detail"] = "no route / NXDOMAIN"
+        return row
+    except requests.exceptions.RequestException as exc:
+        row["detail"] = type(exc).__name__
+        return row
+
+    body = r.text or ""
+    row["http"] = r.status_code
+
+    # Offsite redirect: the classic sci-hub.tf trap. Check this before the status
+    # code, because the scam page returns a perfectly healthy 200.
+    final_host = requests.utils.urlparse(r.url).hostname or ""
+    base = domain.split(".", 1)[-1] if domain.count(".") > 1 else domain
+    if not (final_host == domain or final_host.endswith("." + domain)
+            or domain.endswith("." + final_host) or base in final_host):
+        row["status"] = DOWN
+        row["detail"] = f"redirects offsite to {final_host}"
+        return row
+
+    if NOT_AN_ENTRY_POINT.search(body):
+        row["status"] = DOWN
+        row["detail"] = "signed-URL download edge, not a mirror"
+        return row
+
+    if CHALLENGE.search(body):
+        row["status"] = PROTECTED
+        row["detail"] = "anti-bot interstitial — browser only"
+        return row
+
+    if spec["marker"].search(body):
+        # 401/400 on a self-documenting API still proves the endpoint is live.
+        row["status"] = UP
+        row["detail"] = f"{len(body)}b, marker matched"
+        return row
+
+    if r.status_code >= 500:
+        row["detail"] = f"HTTP {r.status_code}"
+    elif r.status_code >= 400:
+        row["status"] = DEGRADED
+        row["detail"] = f"HTTP {r.status_code}, no marker"
+    else:
+        row["status"] = DEGRADED
+        row["detail"] = "200 but content does not look like the service"
+    return row
+
+
+def slum() -> list[dict]:
+    """Read open-slum.org. It has no API, so parse the inlined markup."""
+    try:
+        html = requests.get("https://open-slum.org/", timeout=TIMEOUT,
+                            headers={"User-Agent": UA}).text
+    except requests.exceptions.RequestException as exc:
+        print(f"slum: unreachable ({type(exc).__name__})", file=sys.stderr)
+        return []
+    rows = []
+    for item in html.split('class="domain-item-dense"')[1:]:
+        m = re.search(r'class="domain-link"[^>]*>\s*([^<\s]+)\s*<', item)
+        if not m:
+            continue
+        # The mini-timeline runs oldest to newest, so the last span is current.
+        spans = re.findall(r'<span class="(up|protected|degraded|down)">', item)
+        rows.append({"domain": m.group(1),
+                     "status": spans[-1].upper() if spans else "?"})
+    return rows
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(
+        description="Check which shadow-library mirrors are usable right now.")
+    ap.add_argument("services", nargs="*", choices=list(SERVICES) + [],
+                    help="services to check (default: all)")
+    ap.add_argument("--json", action="store_true", dest="as_json")
+    ap.add_argument("--slum", action="store_true",
+                    help="also print what open-slum.org reports")
+    args = ap.parse_args()
+
+    wanted = args.services or list(SERVICES)
+    jobs = [(s, d) for s in wanted for d in SERVICES[s]["domains"]]
+    with ThreadPoolExecutor(max_workers=12) as pool:
+        rows = list(pool.map(lambda a: check(*a), jobs))
+
+    if args.slum:
+        for r in slum():
+            rows.append({"service": "slum", "domain": r["domain"],
+                         "status": r["status"], "detail": "reported by open-slum.org"})
+
+    if args.as_json:
+        json.dump(rows, sys.stdout, indent=2)
+        print()
+        return 0
+
+    order = {UP: 0, DEGRADED: 1, PROTECTED: 2, DOWN: 3}
+    for svc in wanted + (["slum"] if args.slum else []):
+        group = [r for r in rows if r["service"] == svc]
+        if not group:
+            continue
+        note = SERVICES.get(svc, {}).get("note", "")
+        print(f"\n{svc}" + (f"  — {note}" if note else ""))
+        for r in sorted(group, key=lambda r: (order.get(r["status"], 9), r["domain"])):
+            print(f"  {r['status']:<10} {r['domain']:<24} {r['detail']}")
+
+    usable = [r for r in rows if r["status"] == UP and r["service"] != "slum"]
+    print(f"\n{len(usable)} usable of {len(jobs)} checked.")
+    if not usable:
+        print("Nothing usable — do not conclude the paper is unavailable; "
+              "re-check the legitimate rungs first.", file=sys.stderr)
+    return 0 if usable else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

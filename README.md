@@ -8,6 +8,36 @@ ladder. The organising rule is that **a parseable text format is worth more than
 convenient one**: LaTeX and JATS XML carry equations, section structure and
 reference lists that PDF text extraction destroys.
 
+## The three rules
+
+Everything below follows from these. They are ordered: when two pull against each
+other, the earlier one wins.
+
+1. **Prefer parseable source.** PDF text extraction silently mangles equations,
+   loses section boundaries, splits ligatures and reorders multi-column text.
+   LaTeX and JATS do not. Reaching for a PDF when LaTeX exists means quoting from
+   a worse copy for no reason.
+2. **Follow the ladder.** Cheap, open, already-extracted sources first; bootleg
+   copies only when nothing else has it. Do not skip rungs to reach the bottom
+   faster — the lower rungs are slower, less reliable, and in one case not open at
+   all.
+3. **Nothing is cited until it is recorded.** Any paper supporting a claim goes
+   into `verification/bib.md` with its composite BibTeX entry, every source URL
+   used, its abstract, a justification, and verbatim quotes with locators. Papers
+   examined and *rejected* get an entry too: knowing a dead end was already
+   explored is worth as much as an inclusion.
+
+Rule 1 is enforced in code. `allpapers-locate` sorts every location it finds by
+`FORMAT_RANK`, best first:
+
+```
+extracted text  ›  LaTeX  ›  XML  ›  HTML  ›  PDF  ›  unknown
+```
+
+Within the XML tier, prefer authored JATS over a GROBID machine parse of a PDF —
+the two share a rank in the code but not in quality. A scanned PDF with no text
+layer is the worst case of all and needs reading by eye.
+
 ## Install
 
 ```bash
@@ -16,21 +46,96 @@ ln -s ~/Work/allpapers ~/.claude/skills/allpapers
 ~/Work/allpapers/scripts/allpapers-setup          # asks once for what it needs
 ```
 
-`allpapers-setup` writes `~/.config/allpapers/config.json` (mode 0600) and mirrors
-the email address and CORE key into `~/.scihub-cli/config.json` so `scihub-cli`
-picks up the same values. Run `allpapers-setup --check` at any time to see what is
-configured; nothing is ever asked for twice.
+## Configuration
 
-It asks for one required value and a few optional ones. The required value is an
-**email address**: Unpaywall's API rejects requests without one, and it also puts
-Crossref and OpenAlex requests into their faster "polite" pools. The optional ones
-are free API keys — **CORE** and **OpenAlex** are the two that materially change
-what you get back, and both are instant to obtain. Everything works without them,
-just less well.
+### The four ways to set anything
+
+```bash
+scripts/allpapers-setup                        # interactive — prompts only for what is missing
+scripts/allpapers-setup --check                # status of every credential
+scripts/allpapers-setup --set email=me@example.org core_api_key=...
+scripts/allpapers-setup --env                  # emit `export` lines for a shell
+```
+
+Or set the environment variable for any setting directly — `allpapers-setup`
+reads the environment and folds those values into the config, so a key already
+exported never gets asked for.
+
+### Where it lives
+
+`~/.config/allpapers/config.json`, mode 0600. Override the directory with
+`ALLPAPERS_CONFIG_DIR`. The email address and the CORE key are additionally
+mirrored into `~/.scihub-cli/config.json`, so `scihub-cli` picks up the same
+values and nobody is asked twice.
+
+Nothing is ever asked for twice, and every key is scrubbed out of URLs before
+they are printed or written to `bib.md`.
+
+### What `--check` tells you
+
+Each credential reports `OK`, `set`, or `MISSING` with the reason it is worth
+having and a link to get it. Exit 0 means everything essential is present; exit 1
+means the email address — the one required value — is missing.
+
+```
+paperclip                 : OK (logged in; paperclip, version 0.7.38)
+email                     : set (required)
+core_api_key              : set (optional)
+openalex_api_key          : MISSING (optional) — OpenAlex's cached full text ...
+                            get it: https://openalex.org/users  (free, instant)
+```
+
+Everything works without the optional keys, just less well.
+
+| Setting | Env var | Cost | What it buys |
+|---|---|---|---|
+| `email` | `ALLPAPERS_EMAIL` | — | **Required.** Unpaywall rejects requests without one; also the OpenAlex and Crossref polite pools |
+| `core_api_key` | `CORE_API_KEY` | free, instant | CORE full text — **verified**: with a key, records return real text (38,460 and 68,513 characters in one test); anonymous returns the literal string `"Not available for public API users."`. Raises the quota from 100 to **1,000 tokens/day** — see the tier table below |
+| `openalex_api_key` | `OPENALEX_API_KEY` | free, instant | OpenAlex's cached GROBID TEI XML (~49M works, $0.01/file) and a $1/day metadata budget instead of the anonymous $0.10/day |
+| `gemini_api_key` | `GEMINI_API_KEY` | free tier | Grounded web search — real Google Search queries returning answers with citations, reaching papers a plain web search misses |
+| `ncbi_api_key` | `NCBI_API_KEY` | free | NCBI eutils at 10 requests/sec instead of 3. The anonymous limit is enforced and returns HTTP 429 mid-sequence, which reads as a lookup failure rather than a rate limit |
+| `semantic_scholar_api_key` | `SEMANTIC_SCHOLAR_API_KEY` | free | Higher Semantic Scholar rate limits |
+| `serpapi_key` | `SERPAPI_KEY` | paid | Google Scholar via SerpApi instead of scraping. Only worth it if Scholar blocks and the paper matters |
+
+### CORE's tiers — a key is not the whole story
+
+CORE meters in **tokens**, not requests. From its own documentation: "a simple
+query will cost you 1 token while more complex queries will cost you between 3 to
+5 tokens", and recommender, scroll-search and bulk queries cost more. So the daily
+figures below are not request counts.
+
+| User type | How to obtain | Rate limit |
+|---|---|---|
+| Unauthenticated | nothing | **100 tokens/day**, max 10/minute |
+| Registered personal | the CORE API form | **1,000 tokens/day**, max 25/minute |
+| Registered academic, *not* at a Supporting or Sustaining institution | the CORE API form | **5,000 tokens/day**, max 10/minute |
+| Registered academic at a Supporting or Sustaining institution, and non-academic organisations | the CORE API form | negotiated — CORE estimates **~200k tokens/day** |
+
+So a free personal key buys 1,000 tokens a day. The ~200k figure needs an academic
+affiliation whose library actually supports CORE; it is not something you can
+register your way into. Register at <https://core.ac.uk/services/api#form>.
+
+Watch the response headers rather than counting calls yourself —
+`x-ratelimit-limit`, `x-ratelimit-remaining` and `x-ratelimit-retry-after` (an ISO
+timestamp) come back on every call. Measured with a registered personal key on
+2026-08-26: `x-ratelimit-limit: 10`, which matches the per-minute bucket rather
+than the documented 25/minute for that tier — so trust the headers over the table.
+
+**paperclip** is a separate install, and the highest rung of the ladder depends on
+it:
+
+```bash
+curl -fsSL https://paperclip.gxl.ai/install.sh | bash
+paperclip login
+```
+
+If its free usage is exhausted, an API key from <https://paperclip.gxl.ai/keys>
+goes in `PAPERCLIP_API_KEY`. Exhaustion is a fall-through condition, not an error:
+the ladder continues at the next rung.
 
 ## How it works
 
-Six tools plus a set of reference documents:
+Seven tools plus a set of reference documents:
 
 | Tool | What it does |
 |---|---|
@@ -40,10 +145,99 @@ Six tools plus a set of reference documents:
 | `scripts/arxiv-source` | Downloads an arXiv paper's submitted source into a `mktemp` directory and unpacks it, handling all three payload shapes arXiv serves. |
 | `scripts/allpapers-bibtex` | Builds one composite BibTeX entry by merging INSPIRE-HEP, Crossref, DataCite, arXiv, PubMed and Scholar field by field, then normalising it. |
 | `scripts/allpapers-fetch` | Fetches source *and* PDF into `verification/source/<citationKey>/`, and writes the `verification/bib.md` record — staged first, promoted or rejected after you have read the paper. |
+| `scripts/allpapers-mirrors` | Checks which shadow-library mirrors are usable right now by verifying **content and final hostname**, not the status code, and can print what open-slum.org reports alongside. |
 
 `reference/ladder.md` is the decision procedure the skill follows; the other
 reference files hold the API details for each service, including the defects
 measured in each one.
+
+### The three kinds of lookup
+
+Decide which one you are doing before you start. They use different tools and fail
+in very different ways.
+
+**Exact** — you know which paper you want:
+
+```bash
+scripts/allpapers-locate 10.1038/nature14539
+scripts/allpapers-locate arXiv:1706.03762
+scripts/allpapers-locate PMC3084216
+scripts/allpapers-locate 26017442                      # PMID
+scripts/allpapers-locate "Attention is all you need"   # resolves the title first
+scripts/allpapers-locate 10.1038/nature14539 --json    # for scripting
+```
+
+Exit 1 means nothing free was found — the signal to move down the ladder.
+Rate-limit and withheld-full-text messages print as `note:` lines and are *not*
+counted as locations, so exit 1 really does mean nothing was found. Any row marked
+`identity unconfirmed` needs its title checked before you quote it; see the
+OpenAlex and CORE defects below for why that marker exists.
+
+**Keyword** — you know the words that will appear:
+
+```bash
+scripts/allpapers-search --mode keyword "CRISPR base editing off-target" -n 250
+scripts/allpapers-search --mode keyword --bool "(prime OR base) AND editing"
+scripts/allpapers-search --mode keyword -e -t "Attention Is All You Need"
+```
+
+**Semantic** — you know the idea, not the words:
+
+```bash
+scripts/allpapers-search --mode semantic \
+  "correcting for systematic under-reporting when the missingness mechanism is unknown"
+
+scripts/allpapers-search --mode analogical "..."   # same method, unrelated field
+scripts/allpapers-search --mode all "..."          # all four rankers, merged
+```
+
+Query wording matters more than any flag. The embedding model is fine-tuned on
+abstracts, so the best input is a full abstract pasted verbatim; the next best is
+one or two sentences describing the *method or problem structure* rather than the
+topic. Bare keywords are the weakest possible input to a semantic ranker.
+`--mode analogical` finds the same structural method in a different field, and is
+the one search worth running even when you think you are done — the useful analogy
+is usually in the community you would not have searched.
+
+Two defaults quietly lose results: **always pass `-n 250`** (paperclip's real
+default is 20, not the 100 its `--help` claims, and nothing warns you the rest
+existed — `allpapers-search` defaults to 250 for this reason), and **think about
+sort order** (`--sort date` is for recency sweeps, not for finding the single best
+source; it discards relevance entirely and is refused alongside
+`--min-similarity`).
+
+Add `--gemini` to run Gemini grounded web search in parallel with paperclip, or
+`--gemini-only` to skip paperclip. It returns *claims with citations*, so every
+result is a lead to verify, never a source to quote.
+
+### Getting the full text
+
+For anything on arXiv, the submitted source is the best format that exists:
+
+```bash
+dir=$(scripts/arxiv-source 1205.7018)     # unpacks into a mktemp directory
+ls "$dir"/*.tex
+```
+
+The main file is usually the `.tex` containing `\documentclass`, or the one
+`\input`/`\include` lines point into. Exit 3 means the author submitted a PDF
+only and no LaTeX exists.
+
+Everything else, in the order rule 1 implies:
+
+- **paperclip** — read only what you need: `paperclip grep <pattern> /papers/<id>`,
+  `paperclip scan`, `paperclip ls /papers/<id>/sections/`. Line numbers make quotes
+  citable as `#L45-L52`. One section costs roughly 200 tokens against 40k for a
+  whole paper, so never `cat` a paper you can grep — and `cat` truncates large
+  files anyway (see the defects below).
+- **Europe PMC JATS XML** — authored structure: sections, equations, references.
+  Far cleaner than the PDF of the same article.
+- **OpenAlex GROBID TEI XML** — a machine parse of the paper's own PDF. Costs $0.01
+  against the OpenAlex budget, does no OCR, and its header and reference parsing
+  makes mistakes: trust the body, re-check the metadata elsewhere.
+- **PDF, when unavoidable** — `pdftotext -layout file.pdf -`. If that returns
+  almost nothing, the PDF is a scan with no text layer: read it visually and
+  re-check every quote character by character.
 
 ### The ladder, in short
 
@@ -59,11 +253,60 @@ measured in each one.
    repositories, theses, author copies. Gemini runs real Google Search queries and
    returns answers with citations, which reaches material paperclip's four backends
    do not index. Results are leads to verify, never sources to quote.
-6. **Sci-Hub** — last resort only, when nothing above has a copy. Bootleg, not
-   open. Fetched copies are verification-only and must never be committed.
+6. **Shadow libraries** — last resort only, when nothing above has a copy.
+   Unlicensed, not open. Within the rung the order is **LibGen** (the only one
+   with a real JSON API and no key), then **Sci-Hub**, then **Anna's Archive**
+   (whose download half needs paid membership), then **welib.org / Z-Library**
+   (browser only). Fetched copies are verification-only and must never be
+   committed — arXiv's own terms forbid re-serving e-prints, and the reasoning
+   applies with more force here.
+
+   Mirrors churn constantly and an HTTP 200 proves nothing: `sci-hub.tf` answers
+   200 and redirects to an ad landing page. Run `scripts/allpapers-mirrors` — it
+   verifies content, not status — and consult <https://open-slum.org/> for live
+   status. Detail in `reference/shadow-libraries.md`.
 
 Full detail, including what to do when paperclip's rate limit is exhausted, is in
 `reference/ladder.md`.
+
+### The composite BibTeX entry
+
+No single index is right about everything, so the entry is merged field by field
+rather than taken whole from one:
+
+```bash
+scripts/allpapers-bibtex 10.1103/PhysRevD.59.043516
+scripts/allpapers-bibtex arXiv:1706.03762 --bibmd     # as a bib.md record
+scripts/allpapers-bibtex 10.1038/nature14539 --raw    # each index unmerged
+```
+
+Six indexes are consulted — INSPIRE-HEP, Crossref, DataCite, arXiv, PubMed and
+Google Scholar — and each field is taken from the index most likely to be right
+about that particular field. Disagreements are *printed* rather than silently
+resolved, so they can be checked rather than assumed away.
+
+Google Scholar is consulted on every lookup and trusted last for every field. It
+sometimes carries a venue for grey literature no registration index has, so
+skipping it loses information; but it does not reliably return the paper you asked
+for even on an exact title-restricted query, so it never outranks a registration
+record. Its contribution — or its silence — is reported either way.
+
+Normalisations applied, each fixing something measured:
+
+| Fix | Why it exists |
+|---|---|
+| Exotic spaces folded | APS deposits author initials separated by `U+2009` THIN SPACE and Crossref passes it through — 325 of them in the LIGO detection paper. Under pdflatex with `utf8` inputenc this is a *hard build failure*, not a cosmetic issue. Accents and curly quotes compile fine and are left alone. |
+| Title case protected | `plain.bst` and friends run `change.case$` over the title and lowercase anything not braced. BibTeX has no idea what maths is, so `$N$` becomes `$n$` — Maldacena's paper renders as "The large n limit". Maths spans and mixed-case words (AdS, QCD, McDonald) are brace-protected. |
+| DOI case restored | Crossref's BibTeX export lower-cases the DOI while its own `url` field keeps the registered casing. Nothing breaks, but the entry then disagrees with every other citation of the same paper. |
+| Empty authors dropped | Crossref author arrays sometimes end with an empty name, which renders as a phantom final author. |
+| Page labels | `pp. 436--444` for a range, but a bare `043516` for an APS article number — writing "pp." there claims a page range that does not exist. |
+| Credentials scrubbed | API keys are stripped from every URL before it is recorded, so a key can never reach the committed record. |
+
+Two traps merging cannot fix. The **reprint trap**: arXiv's Atom record carries a
+`doi` and `journal_ref` that may point at a later reprint rather than the version
+you read. The **identity trap**: every index here is keyed by the identifier you
+supplied, so if that identifier is wrong, six indexes will agree confidently about
+the wrong paper.
 
 ### Verification
 
@@ -104,6 +347,24 @@ repository containing `verification/source/Vaswani:2017lxt/` will not check out 
 Windows. If that matters for your repository, sanitise the directory name — the
 key inside the `.bib` entry must not change.
 
+### The report at the end
+
+Every lookup finishes by telling the user, explicitly:
+
+1. **Every source consulted, in order, with its outcome** — including the ones that
+   returned nothing, and including rungs skipped because an earlier one succeeded.
+   "paperclip: 3 hits" and "CORE: rate-limited, not consulted" are both findings.
+2. **Where the search stopped and why** — found what was needed, or exhausted the
+   ladder. If it exhausted the ladder, what the last resort returned.
+3. **The full composite BibTeX entry** for every paper found, as written to
+   `verification/bib.md`.
+4. **Anything unverified** — an `identity unconfirmed` location that was used, a
+   field only one index carried, a quote taken from a PDF text layer rather than
+   source, a Scholar result that could not be checked because Scholar was blocking.
+
+`allpapers-locate --json` and `allpapers-bibtex --json` give the material for 1
+and 3 without re-running anything.
+
 ### Reference files
 
 | File | Contents |
@@ -119,12 +380,14 @@ key inside the `.bib` entry must not change.
 | `reference/gemini.md` | Gemini grounded search: endpoints, request shapes, citation extraction |
 | `reference/bibtex.md` | The composite merge, the per-field trust order, every normalisation applied |
 | `reference/scihub.md` | scihub-cli, its defects, mirror state, the manual fallback |
+| `reference/shadow-libraries.md` | LibGen/Anna's Archive/Z-Library APIs, live mirror status, SLUM, the traps |
 | `reference/verification.md` | `verification/bib.md` and `verification/equations.py` |
 
 ## How many papers are there?
 
-Every number below was read from the service's own API or site on **2026-08-25**,
-not from a marketing page. The query used is given so each can be re-checked.
+Every number below was read from the service's own API or site on **2026-08-25**
+— except the three shadow-library rows, measured **2026-08-26** — not from a
+marketing page. The query used is given so each can be re-checked.
 
 | Service | Records | What that counts | How it was measured |
 |---:|---:|---|---|
@@ -138,7 +401,9 @@ not from a marketing page. The query used is given so each can be re-checked.
 | **paperclip** | **11,624,272** | **full text already extracted and line-numbered** | `paperclip sql` (see note below) |
 | PMC open-access subset | 8,171,125 | the redistributable part of PMC | eutils `esearch term="open access"[filter]` |
 | arXiv | 3,146,378 | cumulative submissions through 2026-08 | `arxiv.org/stats/get_monthly_submissions`, summed |
-| Sci-Hub | *unverified* | — | every mirror was unreachable from this machine |
+| Anna's Archive | 157,010,964 | papers (plus 71,400,751 books) | Wikipedia, 2026-08-20 — the service's own stats page is a JS bundle |
+| Sci-Hub | 84,794,279 | "papers in Sci-Hub library" | front page of `sci-hub.ee`, 2026-08-26 |
+| LibGen | *unmeasured* | — | no count is exposed on the front page or through `json.php` |
 
 **Open-access subtotals**, also live from OpenAlex: 121,719,172 works are
 `is_oa:true`, and 47,547,905 have `has_fulltext:true`. So of ~322M known works,
@@ -181,61 +446,265 @@ in the table is a differently-shaped view of that same population. Querying
 several indices is still worth it, because they disagree about *where* the free
 copy is, and one will often know a repository copy the others have missed.
 
-### Measured defects worth knowing
+## Keys, quotas and rate limits
 
-Each of these was reproduced against the live service; they are documented in full
-in the relevant `reference/` file.
+Every number in the "free limit" column was **measured live on 2026-08-26** from
+the service's own response headers unless it is marked otherwise. Values marked
+*(their docs)* come from the service's published terms because the service returns
+no rate-limit headers; values marked *(not measured)* are recorded for completeness
+and were not verified here.
 
-- **CORE mis-attributes DOIs.** A `doi:"10.1038/nature14539"` query returned a
-  record carrying that DOI whose title was a Spanish thesis about advertising
-  campaigns — the DOI had been scraped from its reference list. `allpapers-locate`
-  therefore checks the title before trusting any CORE record.
-- **OpenAlex does it too**, through the same mechanism. Of the five locations it
-  lists for Braun and Clarke's "Using thematic analysis in psychology", only the
-  journal's `publishedVersion` was that paper; two of the repository entries were
-  confirmed to be entirely different articles. Neither index gives you a field that
-  separates the good matches from the bad, so `allpapers-locate` marks every
-  location it cannot prove — anything that is not a publisher `publishedVersion` and
-  does not carry the work's own DOI, arXiv ID or PMCID in its URL — as
-  `identity unconfirmed`, and says to check the title before quoting it.
+| Service | Key or registration | Free limit | Raised by |
+|---|---|---|---|
+| **paperclip** | Browser OAuth login; `PAPERCLIP_API_KEY` or `--api-key` for non-interactive use | free-tier usage cap | API key — <https://paperclip.gxl.ai/keys> |
+| **Crossref** | none | **10 requests/second** (`x-rate-limit-limit: 10`, `x-rate-limit-interval: 1s`) | a `mailto:` in the User-Agent or query puts you in the polite pool — confirmed by `x-api-pool: polite-single`. Paid Metadata Plus exists *(not measured)* |
+| **OpenAlex** | none, but a free key is worth having | **$0.10/day** — 1000 credits at 1 credit per metadata lookup, reset at midnight UTC (`x-ratelimit-limit-usd`, `x-ratelimit-reset`) | free key at <https://openalex.org/users> → **$1/day**; paid tiers $20/$100/$200+ per day |
+| **Unpaywall** | no key, but `email=` is required on every call | "Please limit use to 100,000 calls per day" *(their docs)*; no rate-limit headers returned | bulk data dump for heavier use |
+| **CORE** | free key | metered in **tokens**, not requests (a simple query costs 1, a complex one 3–5): **100 tokens/day** unauthenticated, max 10/minute, **and full text is withheld** | free personal key → **1,000 tokens/day**; academic → 5,000/day; academic at a CORE-supporting institution → negotiated, ~200k/day. See the tier table above |
+| **Europe PMC** | none | no published limit; returns no rate-limit headers | — |
+| **NCBI E-utilities** | none; free key available | **3 requests/second per IP**, enforced with HTTP 429 rather than throttling | free key at <https://www.ncbi.nlm.nih.gov/account/settings/> → **10/s**, passed as `&api_key=` |
+| **Semantic Scholar** | none; free key available | a **shared** anonymous pool — a single cold call to `/paper/search` returned **429**, and succeeded on the immediate retry | free key — <https://www.semanticscholar.org/product/api#api-key> |
+| **arXiv** | none | **1 request every 3 seconds, one connection at a time**, across all machines you control *(their terms of use)* | — (bulk access is via dumps, not a higher API limit) |
+| **DataCite** | none | no published limit; returns no rate-limit headers | — |
+| **INSPIRE-HEP** | none | no published limit; returns no rate-limit headers | — |
+| **Google Scholar** | none — there is no official API | blocks by IP address, **invisibly** (HTTP 200, full page, no results) | paid SerpApi — `serpapi_key` |
+| **Gemini grounded search** | **API key required**, free and instant at <https://aistudio.google.com/apikey> | per-model and per-day free-tier caps; see <https://ai.google.dev/gemini-api/docs/rate-limits> | paid tier |
+| **LibGen** | **none** — metadata *and* download work unauthenticated | none published, none observed; no rate-limit headers | — |
+| **Sci-Hub** | none | none — the constraint is availability, not rate | — |
+| **Anna's Archive** | search needs none; details and downloads need your **account secret key** (the string you log in with) | free users get "slow downloads" with a countdown, browser only | **paid donation/membership** for fast downloads — the only paid tier among the shadow libraries |
+| **Z-Library** | account required | daily download cap | paid tier raises the cap *(not measured)* |
+
+Store keys with `scripts/allpapers-setup --set <name>=<value>`; run
+`scripts/allpapers-setup --check` to see which are present. Keys are scrubbed
+from every URL the tools print or write, so they never reach `bib.md`.
+
+## Caveats by source
+
+Each of these was reproduced against the live service. They are grouped by source
+so you can read just the ones you are about to use; full detail is in the matching
+`reference/` file.
+
+### paperclip
+
+- **`-n` defaults to 20, not the 100 its `--help` claims.** Measured at exactly 20
+  on `pmc`, `arxiv`, `abstracts`, `trials/us` and `fda`, unchanged by `--all`, with
+  `-n` honoured exactly up to 500. Nothing warns you the rest existed. **Always
+  pass `-n 250`.**
+- **`cat` on a large file truncates**, printing a banner such as
+  `[~9784 tokens total, showing first ~1000 chars]`. Use `head -n 500`,
+  `sections/`, `grep` or `scan` instead — reading one section costs about 200
+  tokens against roughly 40k to load a whole paper.
+- **`-c/--count` is documented as "count only (no results)" but is a no-op** — it
+  returns the full list anyway.
+- **`SELECT COUNT(*)` returns one row per backend**, not a total.
+- **`lookup --json` ignores the flag** and prints human text anyway, and exits 0
+  even when it found nothing.
+- **Some records carry future publication dates** — a `2027-08-01` at the head of a
+  date-sorted PMC list — so the top of `--sort date` is not reliably the newest
+  real work. Sanity-check the head.
+- **`sql` sees titles and abstracts, not bodies.** To find papers *containing* a
+  string use `grep`, not `sql … ILIKE`.
+- **While a repo is checked out, every search is written to that repo's audit
+  trail.** Run `paperclip repo checkout -` before unrelated exploratory work.
+- **The shell is sandboxed**: `rm`, `curl`, `wget`, `ssh` and `sudo` are blocked,
+  and shell loops and `xargs` are unsupported. Use `bash '...'` for pipes and
+  redirection into `/.gxl/`.
+
+### CORE
+
+- **CORE mis-attributes DOIs**, and it is not a rare edge case. Re-measured with a
+  registered key on 2026-08-26: `q=doi:"10.1038/nature14539"` returned **three**
+  results, of which only the second was that paper — the other two were a Spanish
+  thesis on advertising campaigns and a Spanish software-engineering thesis, both
+  carrying the DOI because it appears in their reference lists. A second DOI query
+  returned 25 hits for one DOI. `allpapers-locate` therefore checks the title
+  before trusting any CORE record.
+- **A bare quoted phrase returns HTTP 500.** Reproduced twice each on 2026-08-26:
+  `q="thematic analysis"` → 500, while `q=thematic analysis` → 200 (15,820,682
+  hits) and `q=title:"thematic analysis"` → 200. **Quoted phrases must be
+  field-qualified**; an unqualified one is a server error, not an empty result.
 - **CORE withholds full text from anonymous users**, returning the literal string
-  `"Not available for public API users."` in the `fullText` field. A free key
-  fixes this and raises the limit from 10 requests per 10 minutes.
-- **paperclip's `SELECT COUNT(*)` returns one row per backend**, not a total.
-- **paperclip's `lookup --json` ignores the flag** and prints human text anyway,
-  and it exits 0 even when it found nothing.
-- **Unpaywall's `/v2/search` endpoint returns HTTP 500** on every variation tried;
-  DOI lookup works normally.
-- **arXiv `/src/` is not always a tarball** — it can be a bare gzipped `.tex`, or
-  a PDF when the author submitted no source at all.
-- **OpenAlex is metered in dollars now**, which is easy to miss because nothing
-  breaks until it does. Every response carries `x-ratelimit-limit-usd` and
-  `x-ratelimit-remaining-usd`; anonymous callers get $0.10 a day — 1000 metadata
-  lookups at 1 credit each — resetting at midnight UTC, and a free account key
-  raises that to $1.
+  `"Not available for public API users."` in the `fullText` field. A key does fix
+  this — verified: with a key, records came back carrying 38,460 and 68,513
+  characters of real text. But **most records still return `fullText: ""`** — an
+  empty string, not the refusal message — so with a key you can no longer tell
+  "no text stored" from "not allowed" by reading that field.
+- **`sourceFulltextUrls` does not reliably contain URLs.** Measured: a record whose
+  `sourceFulltextUrls` was a one-element list holding a *reference-list citation
+  string* — `"Álvarez Calleja, M. A. (s.f.). Denotación Y Connotación…"` — with a
+  URL merely embedded at the end of the prose. Validate each element as a URL
+  before fetching it.
+- **The field names are camelCase throughout** — a snake_case guess silently
+  returns nothing.
+- **A trailing slash on the endpoint causes a 301** that drops the auth header.
+
+### Unpaywall
+
+- **`/v2/search` returns HTTP 500** on every variation tried. DOI lookup works
+  normally.
 - **Unpaywall covers Crossref DOIs only.** DataCite DOIs are excluded by design, so
   an arXiv paper looked up by its `10.48550/arXiv.…` DOI returns nothing. That is
-  not a miss; go to arXiv directly.
-- **Google Scholar is a discovery tool, not an identity resolver.** Live probes on
-  four exact-title queries put the queried paper outside the returned results
-  entirely. Use it to find copies, not to confirm which paper you are holding.
-- **Google Scholar's block is invisible.** When it refuses a caller it returns
-  HTTP 200 and a full-size ~142 kB page with no CAPTCHA marker and no results —
-  indistinguishable from "this paper is not indexed" unless you read the prose. Two
-  further traps: the result-block class names appear 24 times in the page's own
-  inlined CSS, so testing for their presence reports success on an empty page; and
-  the message's apostrophe is entity-encoded (`can&#39;t`), so a literal string
-  match never fires. Not User-Agent dependent — the address is what is refused.
-- **Scholar's citation-export endpoint does not answer**: `output=cite` returned
-  HTTP 404 and `view_op=export_citations` HTTP 302 to sign-in. A lot of third-party
-  code still documents these as the way to get BibTeX out of Scholar.
-- **NCBI's `idconv` only knows papers that are in PMC**, and reports everything else
-  as a per-record `status: error` under an HTTP 200 and a top-level `status: ok`.
-  Measured on a 20-PMID spread across 1953–2024, it resolved 10 DOIs where
+  not a miss — go to arXiv directly.
+
+### OpenAlex
+
+- **OpenAlex mis-attributes DOIs too**, by the same mechanism as CORE. Of the five
+  locations it lists for Braun and Clarke's "Using thematic analysis in psychology",
+  only the journal's `publishedVersion` was that paper; two repository entries were
+  confirmed to be entirely different articles. Neither index gives you a field that
+  separates good matches from bad, so `allpapers-locate` marks every location it
+  cannot prove — anything that is not a publisher `publishedVersion` and does not
+  carry the work's own DOI, arXiv ID or PMCID in its URL — as
+  `identity unconfirmed`.
+- **OpenAlex is metered in dollars now**, which is easy to miss because nothing
+  breaks until it does. Every response carries `x-ratelimit-limit-usd` and
+  `x-ratelimit-remaining-usd`.
+- **Its GROBID full text is a machine parse of a PDF and does no OCR**, so a
+  scanned paper yields an empty or near-empty TEI body rather than an error.
+
+### Europe PMC
+
+- **The full-text path takes one segment, not two**:
+  `…/webservices/rest/{PMCID}/fullTextXML`. Inserting a source segment 404s.
+- Its JATS is authored XML, so it beats a GROBID TEI parse of the same paper even
+  though both sit in the `xml` tier of the format ranking.
+
+### NCBI (PubMed / PMC)
+
+- **`idconv` only knows papers that are in PMC**, and reports everything else as a
+  per-record `status: error` under an HTTP 200 and a top-level `status: ok`.
+  Measured on a 20-PMID spread across 1953–2024 it resolved 10 DOIs where
   `esummary` resolved 18 — including Watson and Crick 1953, which it calls not
   found. Reading its silence as "no such paper" is the easy mistake.
-- **NCBI enforces 3 requests/sec for anonymous callers**, returning HTTP 429
-  mid-sequence rather than throttling. A free key raises it to 10/s.
+- **The 3/s limit is enforced with HTTP 429 mid-sequence**, not by throttling.
+  Batch identifier lists rather than looping.
+
+### Semantic Scholar
+
+- **A DOI lookup can 404 for a paper Semantic Scholar actually holds.** Measured:
+  `/graph/v1/paper/DOI:10.1038/nature14539` returned
+  `{"error":"Paper with id … not found"}` on all three path forms, yet a title
+  search returned the paper — with `externalIds.DOI` set to `null`. Never read an
+  S2 404 as "this paper does not exist"; fall back to title search.
+- **The anonymous pool is shared and saturated.** A single cold call to
+  `/paper/search` returned 429 and succeeded on the immediate retry, so retry logic
+  is mandatory even for one-off lookups.
+
+### arXiv
+
+- **`/src/` is not always a tarball.** It can be a bare gzipped `.tex`, or a PDF
+  when the author submitted no source at all — `scripts/arxiv-source` exits 3 in
+  that case so the caller knows to fall back to PDF extraction.
+- **arXiv mints a DataCite DOI (`10.48550/arXiv.<id>`)**, so Crossref-based tools
+  find nothing for it. Query DataCite, or use the arXiv ID directly.
+- **Their terms forbid storing and re-serving e-prints** from your own servers.
+  Local copies for verification are fine; redistribution is not.
+
+### Google Scholar
+
+- **Scholar is a discovery tool, not an identity resolver.** Live probes on four
+  exact-title queries put the queried paper outside the returned results entirely.
+  Use it to find copies, not to confirm which paper you are holding.
+- **Scholar's block is invisible.** When it refuses a caller it returns HTTP 200
+  and a full-size ~142 kB page with no CAPTCHA marker and no results —
+  indistinguishable from "not indexed" unless you read the prose. Two further
+  traps: the result-block class names appear 24 times in the page's own inlined
+  CSS, so testing for their presence reports success on an empty page; and the
+  message's apostrophe is entity-encoded (`can&#39;t`), so a literal string match
+  never fires. Not User-Agent dependent — the address is what is refused.
+- **The citation-export endpoints do not answer**: `output=cite` returned HTTP 404
+  and `view_op=export_citations` HTTP 302 to sign-in. A lot of third-party code
+  still documents these as the way to get BibTeX out of Scholar.
+
+### Gemini grounded search
+
+- **Citation URLs are opaque Vertex redirects** of the form
+  `https://vertexaisearch.cloud.google.com/grounding-api-redirect/<token>`. They
+  resolve in a browser, but the token says nothing about the destination, so they
+  must never be recorded as source URLs in `bib.md`. Resolve to the real URL first,
+  or record the identifier instead.
+- **Model overload is a routine transient failure**, not a bug in your request:
+  HTTP 500 on `interactions` and 503 on `generateContent`, both succeeding on
+  retry.
+- **Grounded answers are leads, not sources.** `allpapers-search` prints an
+  `allpapers-locate` command for every identifier it extracts, so each one gets
+  confirmed against a real index before it is cited.
+- **Identifiers in grounded answers arrive wrapped in Markdown.** A grounded answer
+  writes a DOI as `` `10.48550/arXiv.1706.03762` `` or `**10.1038/nature14539**`,
+  so the extraction regex has to exclude backticks, asterisks and pipes as well as
+  prose punctuation — a captured trailing backtick lands in the printed shell
+  command and opens command substitution on paste.
+
+### Crossref and DataCite
+
+- **Crossref lower-cases DOIs in its response.** The registered casing has to be
+  recovered from the entry's own `url` — `10.1103/PhysRevD.59.043516`, not the
+  lower-cased form.
+- **DataCite returns `10.48550/ARXIV.…` in upper case** where the registered form
+  is mixed case (`10.48550/arXiv.…`).
+
+### Shadow libraries (Sci-Hub, LibGen, Anna's Archive, Z-Library)
+
+Full detail in `reference/shadow-libraries.md`. The load-bearing ones:
+
+- **HTTP 200 is not evidence of a working mirror.** `sci-hub.tf` answers 200 and
+  redirects offsite to `arcade.now`, an ad/scam landing page; `sci-hub.hkvisa.net`
+  redirects to `sci-hub.usualwant.com`. `yqrii5.org` and `wbsg8v.xyz` answer on 443
+  but return a 129-byte "Link expired or invalid" — they are Anna's Archive
+  signed-URL download edges, not browsable mirrors. `scripts/allpapers-mirrors`
+  therefore verifies content and the final hostname, not the status code.
+- **The published mirror lists are stale and wrong.** Both
+  <https://www.sci-hub.pub/> and <https://scihub.help/> list `sci-hub.st`,
+  `sci-hub.se` and `sci-hub.red` as working; all three were dead when measured, and
+  neither site offers machine-readable output. Prefer <https://open-slum.org/>.
+- **SLUM is the best status source, and still needs verification.** It checks every
+  5 minutes and its `PROTECTED` status — meaning "behind a JS/anti-bot challenge" —
+  is the single most useful signal, because it marks exactly the hosts `curl`
+  cannot use. But it has **no API** (nine candidate JSON paths all return the same
+  28 KB SPA 404 page; the status is inlined in the HTML), it reports `UP` for hosts
+  that serve nothing usable, and it disagreed with direct measurement in both
+  directions — it called `libgen.gl` DOWN while the API answered normally there.
+- **Sci-Hub has only two live backends behind seven working names.** `sci-hub.ru`,
+  `.su` and `.box` return identical hit counters; `.al` and `.mk` return identical
+  text. Trying more domains after one fails buys very little. The set also flaps
+  within a single session: `sci-hub.ru` served a full front page and then failed TLS
+  about an hour later.
+- **LibGen is the only shadow library with a real API** — `json.php`, no key, no
+  signup. `object=e&fields=*&doi=…` returns the edition and its file md5s;
+  `object=f&fields=*&ids=…` returns `extension` and `filesize`, which are **absent**
+  from the edition record, so a DOI lookup alone cannot tell you whether you are
+  about to fetch a 2 MB PDF or a 900 MB djvu.
+- **`{"error":"No Request keys"}` has nothing to do with API keys.** LibGen calls
+  the *record selectors* "Request keys", and the message is overloaded across two
+  causes: no selector (`?object=e&fields=*`), or an invalid `object=` value even
+  with a valid selector. Check the object name and the selector; authentication is
+  never the problem.
+- **LibGen escapes forward slashes in JSON** — `"doi":"10.1038\/nature14539"` — so
+  matching on a plain DOI string silently finds nothing. This one bit the mirror
+  checker during testing.
+- **LibGen downloads need a one-time nonce.** `get.php?md5=…` alone 307-redirects to
+  `/ads.php?md5=…`; that page embeds `get.php?md5=…&key=<NONCE>`. The key is
+  single-use, so it cannot be cached.
+- **Anna's Archive HTML is unusable by script, but `/dyn/` is not.** `/scidb/<doi>/`
+  403s behind DDoS-Guard on every live domain, while `/dyn/torrents.json` (17.7 MB)
+  and `/dyn/api/fast_download.json` answer normally. The latter **self-documents its
+  full contract in its own 400 error body**; 400 means bad md5, 401 means the key is
+  missing or not a member. Anna's Archive's own error text names **Wikipedia** as
+  the authoritative list of its current domains.
+- **Z-Library cannot be reached with `curl` at all** — three domains 307 to a gate,
+  three return a Cloudflare 503 — and it assigns each user a personal domain after
+  login, so there is no stable host to script against. `welib.org` is the usable
+  member of that family.
+- **`libstc.nexus` is not a service.** Every path returns the same 4,839-byte
+  static "Nexus Bots" placeholder linking elsewhere; the real STC hub is
+  `hub.libstc.cc`.
+- **scihub-cli's block-page detector false-positives on live mirrors** — they serve
+  real pages to a browser User-Agent — and then blacklists them for about 300
+  seconds, persisted across runs, so an immediate retry dies with "All mirrors are
+  unavailable". `-m/--mirror` is ignored by the router.
 - **scihub-cli exits 1 if any identifier failed and 0 only when all succeeded**, and
-  it writes `download-report.json` only when something failed — so the file's
-  absence is not evidence of a problem, and its presence is.
+  writes `download-report.json` only when something failed — so the file's absence
+  is not evidence of a problem, and its presence is.
+- **Old-journal PDFs are often image scans with no text layer** (`pdftotext` returns
+  roughly 0 bytes). Read them visually and re-check quotations character by
+  character.

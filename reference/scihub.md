@@ -1,4 +1,10 @@
-# Sci-Hub — the last rung
+# Sci-Hub — one member of the last rung
+
+> The last rung holds four services. **`shadow-libraries.md` is the entry point**:
+> it covers LibGen (the only one with a real API and no key), Anna's Archive,
+> Z-Library, live mirror status via <https://open-slum.org/>, and the traps that
+> make an HTTP 200 meaningless. This file covers Sci-Hub specifically and the
+> `scihub-cli` wrapper. Try **LibGen before Sci-Hub** — it answers with clean JSON.
 
 Sci-Hub hosts copies that were not lawfully redistributed. It is here because the
 alternative, when every legitimate channel has failed, is verifying a claim
@@ -99,7 +105,36 @@ mostly a Sci-Hub attempt with a second OA pass for free.
   (`Fast-fail enabled: skipping 403 bypass for page access`). Pass
   `--no-fast-fail` if a 403 is the only thing in the way.
 
-### Mirror reachability, measured 2026-08-25
+### Mirror reachability, re-measured 2026-08-26
+
+The 2026-08-25 table below is superseded — several of those mirrors came back, and
+the set flaps within a single session (`sci-hub.ru` served a full front page and
+then failed TLS about an hour later). Run `scripts/allpapers-mirrors scihub` for
+current state rather than trusting any table. As of 2026-08-26:
+
+| Domain | Measured |
+|---|---|
+| `sci-hub.ee` | works, **and carries the search form** — best entry point |
+| `sci-hub.al`, `sci-hub.mk` | work; identical text, so one shared backend |
+| `sci-hub.box`, `sci-hub.ren` | work |
+| `sci-hub.su`, `sci-hub.ru` | **flap within the hour** — `.ru` served a full front page and then failed TLS; `.su` served a front page and then an anti-bot interstitial |
+| `sci-hub.wf` | JS browser check; not scriptable |
+| **`sci-hub.tf`** | **200, then redirects offsite to `arcade.now` — an ad/scam page. Do not use.** |
+| **`sci-hub.hkvisa.net`** | **redirects to `sci-hub.usualwant.com`. Do not use.** |
+| `sci-hub.st` | TLS failure / 403 |
+| `sci-hub.se` | NXDOMAIN |
+| `sci-hub.red` | HTTP 504 |
+
+`.box`, `.su` and `.ru` returned identical hit counters (54,503 users/hour,
+1,832,856 daily reads), so those three names share one backend; `.al` and `.mk`
+share a second. **Seven working names, two machines** — trying more domains after
+one fails buys very little. Which of the names is answering at any moment is the
+part that changes, so run the checker rather than reading this table.
+
+Its front page reports **84,794,279** papers ("papers in Sci-Hub library",
+`sci-hub.ee`, 2026-08-26).
+
+### Mirror reachability, measured 2026-08-25 (superseded)
 
 | Host | Result |
 |---|---|
