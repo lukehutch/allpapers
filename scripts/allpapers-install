@@ -1,0 +1,153 @@
+#!/usr/bin/env bash
+# Link this repo into the skill directory of every agent CLI on this machine.
+#
+# The install is a symlink, so it is also the update path: a `git pull` updates
+# Claude Code, Codex and Antigravity at once, and re-running this only has to
+# confirm the links still point here. All three were measured to follow symlinks.
+set -euo pipefail
+
+NAME=allpapers
+REPO=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+
+# name | skill directory | the command that means this tool is installed
+#
+# CODEX_HOME is documented by Codex's own shipped skill-installer skill:
+# "Installs into $CODEX_HOME/skills/<skill-name> (defaults to ~/.codex/skills)".
+# CLAUDE_CONFIG_DIR is Claude Code's config-directory override.
+# Antigravity reads ~/.gemini/skills — not ~/.antigravity, which holds only
+# VS Code-style settings. Verified by stracing a real `agy -p` run.
+TARGETS=(
+  "Claude Code|${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills|claude"
+  "Codex|${CODEX_HOME:-$HOME/.codex}/skills|codex"
+  "Antigravity|$HOME/.gemini/skills|agy"
+)
+
+# Skills this one replaces. Reported by default, removed only on request: they
+# are the user's files, and deleting them is not this script's decision to make.
+SUPERSEDED=(paperclip scihub-cli)
+
+mode=install
+all=0
+force=0
+remove_superseded=0
+
+usage() {
+    cat <<'USAGE'
+usage: allpapers-install [--check] [--uninstall] [--all] [--force]
+                         [--remove-superseded]
+
+  (no flags)            link the skill into every installed tool, and report
+  --check               report only, change nothing; exit 1 if any is missing
+                        or stale. This is the "is my live install current?" check
+  --uninstall           remove the links this script made
+  --all                 act on every known tool, even ones not installed here
+  --force               replace a real directory sitting where the link goes
+  --remove-superseded   also delete the paperclip and scihub-cli skills, which
+                        this skill replaces
+USAGE
+}
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --check)  mode=check ;;
+        --uninstall) mode=uninstall ;;
+        --all)    all=1 ;;
+        --force)  force=1 ;;
+        --remove-superseded) remove_superseded=1 ;;
+        -h|--help) usage; exit 0 ;;
+        *) echo "allpapers-install: unknown option $1" >&2; usage >&2; exit 2 ;;
+    esac
+    shift
+done
+
+[ -f "$REPO/SKILL.md" ] || {
+    echo "allpapers-install: $REPO/SKILL.md is missing — run this from a checkout" >&2
+    exit 2
+}
+
+problems=0
+skipped=0
+
+for entry in "${TARGETS[@]}"; do
+    IFS='|' read -r label dir cmd <<<"$entry"
+    link="$dir/$NAME"
+
+    if [ "$all" -eq 0 ] && ! command -v "$cmd" >/dev/null 2>&1; then
+        printf '%-14s not installed (no %s on PATH) — skipped\n' "$label" "$cmd"
+        skipped=$((skipped + 1))
+        continue
+    fi
+
+    current=""
+    [ -L "$link" ] && current=$(readlink -f -- "$link" || true)
+
+    case "$mode" in
+    uninstall)
+        if [ -L "$link" ] && [ "$current" = "$REPO" ]; then
+            rm -- "$link"
+            printf '%-14s removed %s\n' "$label" "$link"
+        elif [ -e "$link" ] || [ -L "$link" ]; then
+            printf '%-14s left alone: %s is not a link to %s\n' "$label" "$link" "$REPO"
+        else
+            printf '%-14s nothing to remove\n' "$label"
+        fi
+        ;;
+    check)
+        if [ "$current" = "$REPO" ]; then
+            printf '%-14s current  %s -> %s\n' "$label" "$link" "$REPO"
+        elif [ -n "$current" ]; then
+            printf '%-14s STALE    %s -> %s\n' "$label" "$link" "$current"
+            problems=$((problems + 1))
+        elif [ -e "$link" ]; then
+            printf '%-14s NOT A LINK  %s is a real directory\n' "$label" "$link"
+            problems=$((problems + 1))
+        else
+            printf '%-14s MISSING  %s\n' "$label" "$link"
+            problems=$((problems + 1))
+        fi
+        ;;
+    install)
+        if [ "$current" = "$REPO" ]; then
+            printf '%-14s already current  %s\n' "$label" "$link"
+        elif [ -L "$link" ] || [ ! -e "$link" ]; then
+            mkdir -p -- "$dir"
+            ln -sfn -- "$REPO" "$link"
+            printf '%-14s linked   %s -> %s\n' "$label" "$link" "$REPO"
+        elif [ "$force" -eq 1 ]; then
+            rm -rf -- "$link"
+            ln -sfn -- "$REPO" "$link"
+            printf '%-14s replaced a real directory at %s\n' "$label" "$link"
+        else
+            printf '%-14s REFUSED  %s is a real directory, not a link. Move it, or pass --force\n' "$label" "$link"
+            problems=$((problems + 1))
+            continue
+        fi
+        # The link is only worth anything if the skill reads back through it.
+        [ -r "$link/SKILL.md" ] || {
+            printf '%-14s BROKEN   %s/SKILL.md is not readable\n' "$label" "$link"
+            problems=$((problems + 1))
+        }
+        ;;
+    esac
+
+    for old in "${SUPERSEDED[@]}"; do
+        [ -e "$dir/$old" ] || [ -L "$dir/$old" ] || continue
+        if [ "$remove_superseded" -eq 1 ] && [ "$mode" != check ]; then
+            rm -rf -- "$dir/$old"
+            printf '%-14s removed superseded skill %s\n' "$label" "$dir/$old"
+        else
+            printf '%-14s note: %s is still installed, and %s replaces it (--remove-superseded)\n' \
+                   "$label" "$dir/$old" "$NAME"
+        fi
+    done
+done
+
+if [ "$mode" != uninstall ]; then
+    echo
+    echo "Credentials: $REPO/scripts/allpapers-setup --check"
+fi
+if [ "$skipped" -gt 0 ] && [ "$all" -eq 0 ]; then
+    echo "Pass --all to link into a tool that is not installed yet."
+fi
+
+[ "$problems" -eq 0 ] || exit 1

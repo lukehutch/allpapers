@@ -49,7 +49,29 @@ updates all of them.
 
 ```bash
 git clone https://github.com/lukehutch/allpapers.git ~/Work/allpapers
+~/Work/allpapers/scripts/allpapers-install     # links it into every agent found
+~/Work/allpapers/scripts/allpapers-setup       # asks once for what it needs
 ```
+
+`allpapers-install` looks for `claude`, `codex` and `agy` on your `PATH` and
+links the checkout into the skills directory of each one it finds, skipping the
+rest. It is idempotent, so **re-running it is also the update path**: because the
+install is a symlink, `git pull` updates every agent at once and the script only
+has to confirm the links still point at the checkout.
+
+| Flag | What it does |
+|---|---|
+| *(none)* | link into every installed agent, and report what it did |
+| `--check` | report only, change nothing. Exit 1 if any install is missing or stale — this is the "is my live install current?" check |
+| `--all` | act on every known agent, including ones not installed yet |
+| `--force` | replace a real directory sitting where the link belongs |
+| `--remove-superseded` | also delete the `paperclip` and `scihub-cli` skills that this one replaces |
+| `--uninstall` | remove the links it made. It refuses to touch anything that is not its own link |
+
+By default it *reports* a superseded skill rather than deleting it — those are
+your files, and removing them is your call, not the installer's.
+
+### Doing it by hand
 
 | Agent | Skills directory | Link it in |
 |---|---|---|
@@ -63,8 +85,10 @@ All three at once:
 for d in ~/.claude/skills ~/.codex/skills ~/.gemini/skills; do
   mkdir -p "$d" && ln -sfn ~/Work/allpapers "$d/allpapers"
 done
-~/Work/allpapers/scripts/allpapers-setup          # asks once for what it needs
 ```
+
+`$CODEX_HOME` and `$CLAUDE_CONFIG_DIR` move the first two directories if you have
+set them; `allpapers-install` honors both.
 
 Prefer a copy to a symlink? `cp -r ~/Work/allpapers ~/.codex/skills/allpapers`
 works just as well; you then update each copy yourself.
@@ -98,14 +122,17 @@ it does put three overlapping skill descriptions in front of the model, which
 makes the choice between them arbitrary. Remove them:
 
 ```bash
-rm -rf ~/.claude/skills/paperclip  ~/.claude/skills/scihub-cli \
-       ~/.codex/skills/paperclip   ~/.codex/skills/scihub-cli \
-       ~/.gemini/skills/paperclip  ~/.gemini/skills/scihub-cli \
-       ~/.agents/skills/paperclip  ~/.agents/skills/scihub-cli
+scripts/allpapers-install --remove-superseded
+```
+
+That covers the three agent directories. One more is worth clearing by hand:
+
+```bash
+rm -rf ~/.agents/skills/paperclip ~/.agents/skills/scihub-cli
 ```
 
 `~/.agents/skills/` is a shared cross-tool location some installers also write
-to, which is why it is in the list.
+to. The installer leaves it alone because no agent it targets reads it.
 
 Removing the *skill* does not remove the *tool*: `paperclip` and `scihub-cli`
 stay on your PATH and allpapers keeps calling both. Only the competing
@@ -298,10 +325,11 @@ the ladder continues at the next rung.
 
 ## How it works
 
-Seven tools plus a set of reference documents:
+Eight tools plus a set of reference documents:
 
 | Tool | What it does |
 |---|---|
+| `scripts/allpapers-install` | Link the checkout into the skills directory of every agent CLI on this machine, and re-check it later — `--check`, `--uninstall`, `--remove-superseded` |
 | `scripts/allpapers-setup` | First-run credential setup and status check. Asks once, stores in `~/.config/allpapers/config.json`. |
 | `scripts/allpapers-locate` | Queries paperclip, arXiv, Unpaywall, OpenAlex, CORE and Europe PMC **concurrently** for one paper and prints every free full-text location, ranked most-parseable first. |
 | `scripts/allpapers-search` | Keyword (BM25), semantic (vector), hybrid and analogical search over paperclip's 11.6M full texts, optionally alongside Gemini grounded web search — through the Gemini API or, with `--gemini-backend agy`, through the Antigravity CLI and no API key. |

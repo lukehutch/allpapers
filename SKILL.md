@@ -391,6 +391,7 @@ the material for 1 and 3 without re-running anything.
 
 | Tool | What it does |
 |---|---|
+| `scripts/allpapers-install` | Link this skill into Claude Code, Codex and Antigravity; `--check` re-verifies an existing install |
 | `scripts/allpapers-setup` | First-run credential setup and status check |
 | `scripts/allpapers-locate` | One paper → every free full-text location, ranked most-parseable first |
 | `scripts/allpapers-search` | Keyword, semantic, hybrid and analogical search, optionally with Gemini grounded web search via the API or `agy` |
