@@ -111,8 +111,19 @@ similarity-checking` — a Similarity Check deposit, which is for plagiarism
 services and not generally fetchable. Do not report those as reader-accessible
 copies.
 
-185,829,151 records indexed. Free, no key. Put your address in a `mailto=`
-parameter or the `User-Agent` to land in the polite pool.
+185,829,151 records indexed. Free, no key.
+
+**Rate limit, measured 2026-08-26 from the response headers**: `x-rate-limit-limit:
+10` with `x-rate-limit-interval: 1s` — ten requests a second. Putting your address
+in a `mailto=` parameter or in the `User-Agent` lands you in the polite pool, which
+the response confirms with `x-api-pool: polite-single`; without it the same header
+reads `public`. A paid Metadata Plus tier exists and was not measured.
+
+**Crossref lower-cases the DOI in its response.** The registered casing has to be
+recovered from the entry's own `url` field — `10.1103/PhysRevD.59.043516`, not the
+lower-cased form. DataCite has the mirror-image problem, returning
+`10.48550/ARXIV.…` where the registered form is `10.48550/arXiv.…`. Normalise from
+the `url`, not from the `DOI` field.
 
 ## Europe PMC — the best JATS XML source
 
@@ -141,9 +152,13 @@ https://www.ebi.ac.uk/europepmc/webservices/rest/{PMCID}/fullTextXML
 
 The two-segment `{source}/{id}` form appears in a lot of third-party code and
 does not work. This is JATS XML — authored structure, not a parse — so it is the
-best non-arXiv machine-readable format available and outranks TEI.
+best non-arXiv machine-readable format available and outranks TEI. It shares the
+`xml` rank with GROBID TEI in `FORMAT_RANK`, but the two are not equal in quality:
+prefer this one.
 
-Free, no key.
+Free, no key. It publishes no rate limit and returns no rate-limit headers, so
+there is nothing to read back — pace calls conservatively rather than assuming
+there is no ceiling.
 
 ## Semantic Scholar
 
@@ -156,6 +171,22 @@ available too, though some AIP and IOP abstracts are elided by the publisher.
 
 Works without a key at a low rate; a free key raises the limit
 (<https://www.semanticscholar.org/product/api#api-key>).
+
+### Two traps, both measured 2026-08-26
+
+**A DOI lookup can 404 for a paper Semantic Scholar actually holds.**
+`/graph/v1/paper/DOI:10.1038/nature14539` returned `{"error":"Paper with id … not
+found"}` on all three path forms tried, yet a title search returned that exact
+paper — with `externalIds.DOI` set to `null`. The record exists; it simply is not
+indexed under its DOI. **Never read an S2 404 as "this paper does not exist."**
+Fall back to `/paper/search?query=<title>` before concluding anything, and note
+that this also breaks the identifier bridge in the DOI→PMID direction for the same
+records.
+
+**The anonymous pool is shared and saturated.** A single cold call to
+`/paper/search` — the first request of the session, no burst — returned HTTP 429,
+and the immediate retry returned 200. Retry logic is mandatory even for a one-off
+lookup; a 429 here says nothing about your own call rate.
 
 ## NCBI — resolving PMIDs, PMCIDs and DOIs into each other
 
