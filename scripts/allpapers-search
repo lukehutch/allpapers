@@ -1,0 +1,480 @@
+#!/usr/bin/env python3
+"""Search for papers you cannot yet name — the discovery counterpart to
+allpapers-locate, which resolves a paper you can already identify.
+
+Two things this exists to get right.
+
+**Result count.** paperclip's `-n` says "default: 100" in its own --help and is
+actually 20 (measured on v0.7.38: 20 results with no -n, exactly 250 with
+-n 250). Twenty is far too narrow for a literature sweep and nothing warns you
+the rest existed, so this tool always passes an explicit -n.
+
+**Ranking.** paperclip runs four different retrievals and they disagree, which is
+the point:
+
+    bm25        lexical. Exact terminology, names, gene symbols, an error string.
+    vector      semantic. Paraphrase; finds the paper that never uses your words.
+    hybrid      both legs blended. The default, and the right one when unsure.
+    analogical  the same *method structure* in another field entirely.
+
+`--mode all` runs them concurrently and merges, tagging each hit with the
+rankers that found it. A paper found by both bm25 and vector is a stronger hit
+than one found by either alone, and that is visible in the output.
+
+`--gemini` adds a channel that is not paperclip at all: Gemini with Google Search
+grounding, which searches the live web and returns url_citation annotations. It
+reaches publisher pages, theses and lab sites that no index here covers.
+"""
+from __future__ import annotations
+
+import argparse
+import concurrent.futures as cf
+import importlib.machinery
+import importlib.util
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+_spec = importlib.util.spec_from_loader(
+    "allpapers_locate",
+    importlib.machinery.SourceFileLoader(
+        "allpapers_locate", str(Path(__file__).with_name("allpapers-locate"))))
+L = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(L)
+
+HERE = Path(__file__).resolve().parent
+RANKERS = ("bm25", "vector", "hybrid", "analogical")
+MODE_RANKERS = {"keyword": ["bm25"], "semantic": ["vector"], "hybrid": ["hybrid"],
+                "analogical": ["analogical"], "all": list(RANKERS)}
+
+ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+SETID = re.compile(r"\[(s_[0-9a-f]+)\]")
+
+# paperclip lays a result out as:
+#
+#       1. Title, which wraps
+#   onto column zero
+#        Author, Author, Author
+#        PMC4173105 · biomedrxiv · 2014-10-01
+#        https://doi.org/10.1093/biostatistics/kxu023
+#        "abstract snippet"
+#
+# The indentation is the parse: a wrapped title continues at column 0 while
+# every other field is indented. Treating any following line as the authors
+# splits two-line titles and files the tail of the title as an author list.
+RESULT = re.compile(r"^ {1,3}(\d+)\.\s+(.*)$")
+IDLINE = re.compile(r"^\s+((?:PMC\d+|(?:bio|med|arx)_[\w.\-/]+|[A-Z]{2}-[\w./-]+))"
+                    r"\s*\u00b7\s*([^\u00b7]*?)\s*\u00b7\s*([\d-]+)\s*$")
+SETID_ONLY = re.compile(r"^\[[\d.]+m?s, saved to s_[0-9a-f]+\]")
+
+
+def run_paperclip(query: str, ranking: str, args) -> tuple[list, str, str]:
+    """One paperclip search. Returns (hits, result-set id, note)."""
+    cmd = ["paperclip", "search", "-s", args.source, "-n", str(args.limit)]
+
+    # Score floors bound only their own retrieval leg, so under hybrid setting
+    # one leaves the other unfiltered. Only pass each to a ranker it applies to.
+    if ranking != "hybrid":
+        cmd += ["--ranking", ranking]
+    if args.exact:
+        cmd.append("-e")
+    if args.title:
+        cmd.append("-t")
+    if args.author:
+        cmd.append("-a")
+    if args.full_text:
+        cmd.append("--full-text")
+    if args.has_full_text:
+        cmd.append("--has-full-text")
+    if args.match_mode:
+        cmd += ["-m", args.match_mode]
+    if args.boolean:
+        # --bool is rejected unless the ranker is explicitly bm25.
+        if ranking != "bm25":
+            return [], "", f"--bool needs --ranking bm25; skipped {ranking}"
+        cmd.append("--bool")
+    if args.since:
+        cmd += ["--since", args.since]
+    if args.year:
+        cmd += ["--year", args.year]
+    if args.year_min:
+        cmd += ["--year-min", args.year_min]
+    if args.year_max:
+        cmd += ["--year-max", args.year_max]
+    if args.journal:
+        cmd += ["--journal", args.journal]
+    if args.category:
+        cmd += ["--category", args.category]
+    if args.sort == "date":
+        # A vector-similarity floor is rejected alongside --sort date.
+        cmd += ["--sort", "date"]
+    if args.min_bm25 and ranking in ("bm25", "hybrid"):
+        cmd += ["--min-bm25-score", str(args.min_bm25)]
+    if args.min_similarity and ranking in ("vector", "hybrid") and args.sort != "date":
+        cmd += ["--min-embedding-similarity", str(args.min_similarity)]
+    cmd.append(query)
+
+    try:
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=args.timeout)
+    except subprocess.TimeoutExpired:
+        return [], "", f"{ranking}: timed out after {args.timeout}s"
+    except OSError as e:
+        return [], "", f"{ranking}: {e}"
+
+    out = ANSI.sub("", p.stdout)
+    err = ANSI.sub("", p.stderr).strip()
+    if p.returncode != 0:
+        return [], "", f"{ranking}: {(err or out).strip().splitlines()[0][:150]}"
+
+    setid = (SETID.search(out) or [None, ""])[1]
+
+    hits, cur = [], None
+
+    def close(rec):
+        if rec:
+            rec["title"] = re.sub(r"\s+", " ", rec["title"]).strip()
+            rec["found_by"] = [ranking]
+            hits.append(rec)
+
+    for line in out.splitlines():
+        m = RESULT.match(line)
+        if m:
+            close(cur)
+            cur = {"rank": int(m.group(1)), "title": m.group(2).strip(),
+                   "authors": "", "id": "", "source": "", "date": "",
+                   "url": "", "snippet": ""}
+            continue
+        if cur is None:
+            continue
+        if not line.strip() or SETID_ONLY.match(line.strip()):
+            continue
+        if idm := IDLINE.match(line):
+            cur["id"], cur["source"], cur["date"] = (idm.group(1),
+                                                     idm.group(2).strip(),
+                                                     idm.group(3))
+            continue
+        stripped = line.strip()
+        if not line.startswith(" "):
+            # Column zero: this is the rest of the title.
+            if not cur["id"]:
+                cur["title"] += " " + stripped
+            continue
+        if stripped.startswith(("http://", "https://", "/")):
+            cur["url"] = stripped
+        elif stripped.startswith('"'):
+            cur["snippet"] = stripped.strip('"')
+        elif not cur["id"] and not cur["authors"]:
+            cur["authors"] = stripped
+    close(cur)
+
+    return hits, setid, ""
+
+
+GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta"
+GEMINI_URL = f"{GEMINI_BASE}/interactions"
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.7-flash")
+GEMINI_PROMPT = (
+    "Find scholarly papers matching this request. For each, give the exact "
+    "title, all authors, year, venue, and the DOI or arXiv ID. Say plainly "
+    "when you are unsure a paper exists rather than guessing an identifier.\n\n"
+    "Request: ")
+
+
+def _gemini_error(r) -> str:
+    try:
+        msg = r.json()
+        return (msg[0] if isinstance(msg, list) else msg).get("error", {}).get(
+            "message", r.text[:300])
+    except (ValueError, AttributeError, IndexError):
+        return r.text[:300]
+
+
+def _parse_interactions(data: dict) -> tuple[str, list, list]:
+    """steps[] -> (answer text, citations, the queries Gemini actually ran)."""
+    text, cites, queries = "", [], []
+    for step in data.get("steps", []) or []:
+        kind = step.get("type")
+        if kind == "google_search_call":
+            queries += step.get("arguments", {}).get("queries", []) or []
+        elif kind == "model_output":
+            for block in step.get("content", []) or []:
+                text += block.get("text", "") or ""
+                for a in block.get("annotations", []) or []:
+                    if a.get("type") == "url_citation":
+                        cites.append({"url": a.get("url", ""),
+                                      "title": a.get("title", "")})
+    return text, cites, queries
+
+
+def _parse_generate_content(data: dict) -> tuple[str, list, list]:
+    """candidates[].groundingMetadata -> the same three things.
+
+    The older endpoint reports grounding separately from the text: the cited
+    pages are in groundingChunks[].web, and the queries in webSearchQueries.
+    """
+    text, cites, queries = "", [], []
+    for cand in data.get("candidates", []) or []:
+        for part in (cand.get("content", {}) or {}).get("parts", []) or []:
+            text += part.get("text", "") or ""
+        gm = cand.get("groundingMetadata", {}) or {}
+        queries += gm.get("webSearchQueries", []) or []
+        for chunk in gm.get("groundingChunks", []) or []:
+            web = chunk.get("web", {}) or {}
+            if web.get("uri"):
+                cites.append({"url": web["uri"], "title": web.get("title", "")})
+    return text, cites, queries
+
+
+def run_gemini(query: str, key: str, timeout: int) -> dict:
+    """Gemini with the google_search tool.
+
+    Two endpoints serve this, taking different request shapes, and which one a
+    given key can reach is not knowable in advance — so try the newer
+    Interactions API and fall back to generateContent on 404/400/403.
+
+    Both shapes were probed live on 2026-08-25 without a key and both returned
+    HTTP 403 PERMISSION_DENIED, i.e. they passed payload validation and failed
+    only at authentication. The *responses* are unverified: no key exists on this
+    machine, so the parsing below is written to the documented shapes and has
+    never met a real one. See reference/gemini.md.
+    """
+    attempts = [
+        (GEMINI_URL,
+         {"model": GEMINI_MODEL, "input": GEMINI_PROMPT + query,
+          "tools": [{"type": "google_search"}]},
+         _parse_interactions, "interactions"),
+        (f"{GEMINI_BASE}/models/{GEMINI_MODEL}:generateContent",
+         {"contents": [{"parts": [{"text": GEMINI_PROMPT + query}]}],
+          "tools": [{"google_search": {}}]},
+         _parse_generate_content, "generateContent"),
+    ]
+    errors = []
+    for url, body, parse, label in attempts:
+        try:
+            r = L.requests.post(
+                url, timeout=timeout, json=body,
+                headers={"Content-Type": "application/json", "x-goog-api-key": key})
+        except L.requests.RequestException as e:
+            errors.append(f"{label}: {e}")
+            continue
+        if not r.ok:
+            errors.append(f"{label}: HTTP {r.status_code}: {_gemini_error(r)}")
+            continue
+        try:
+            data = r.json()
+        except ValueError:
+            errors.append(f"{label}: response was not JSON")
+            continue
+        text, cites, queries = parse(data)
+        if not text and not cites:
+            errors.append(f"{label}: answered, but no text or citations parsed "
+                          f"out of keys {sorted(data)[:6]}")
+            continue
+        seen, uniq = set(), []
+        for c in cites:
+            if c["url"] and c["url"] not in seen:
+                seen.add(c["url"])
+                uniq.append(c)
+        return {"model": GEMINI_MODEL, "endpoint": label, "text": text.strip(),
+                "search_queries": queries, "citations": uniq,
+                "notes": errors}
+    return {"error": " | ".join(errors)}
+
+
+IDENT = re.compile(r"\b(10\.\d{4,9}/[^\s,;)\]}\"'<>]+|arXiv:\s?\d{4}\.\d{4,5})", re.I)
+
+
+def identifiers_in(text: str) -> list[str]:
+    out, seen = [], set()
+    for m in IDENT.finditer(text or ""):
+        v = m.group(1).rstrip(".,;)")
+        if v.lower() not in seen:
+            seen.add(v.lower())
+            out.append(v)
+    return out
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(
+        description="Search for papers across paperclip's ranking modes, and "
+                    "optionally Gemini grounded web search.",
+        epilog="Modes: keyword=bm25 (exact terms), semantic=vector (paraphrase), "
+               "hybrid=both (default), analogical=same method elsewhere, "
+               "all=run every ranker and merge.")
+    ap.add_argument("query")
+    ap.add_argument("--mode", default="hybrid", choices=sorted(MODE_RANKERS),
+                    help="which retrieval to run (default: hybrid)")
+    ap.add_argument("-n", "--limit", type=int, default=250,
+                    help="results per ranker (default 250; paperclip's own "
+                         "default is 20 despite its --help claiming 100)")
+    ap.add_argument("-s", "--source", default="papers",
+                    help="paperclip source: papers, pmc, arxiv, biorxiv, medrxiv, "
+                         "abstracts, trials, fda, proteins, patents (default: papers)")
+    ap.add_argument("--sort", default="relevance", choices=("relevance", "date"),
+                    help="relevance (default) or date, newest first")
+    ap.add_argument("-e", "--exact", action="store_true", help="exact phrase match")
+    ap.add_argument("-t", "--title", action="store_true", help="match titles only")
+    ap.add_argument("-a", "--author", action="store_true", help="match authors only")
+    ap.add_argument("--bool", dest="boolean", action="store_true",
+                    help="boolean expression; forces bm25")
+    ap.add_argument("--full-text", action="store_true",
+                    help="match against full document content, not just titles")
+    ap.add_argument("--has-full-text", action="store_true",
+                    help="only papers with indexed body text")
+    ap.add_argument("-m", "--match-mode", choices=("any", "all", "50%", "75%"),
+                    help="how many query terms must match")
+    ap.add_argument("--since", help="30d, 6m, 1y — PMC, bioRxiv and arXiv only")
+    ap.add_argument("--year")
+    ap.add_argument("--year-min")
+    ap.add_argument("--year-max")
+    ap.add_argument("--journal")
+    ap.add_argument("--category", help="bioRxiv category")
+    ap.add_argument("--min-bm25", type=float, help="BM25 score floor")
+    ap.add_argument("--min-similarity", type=float,
+                    help="vector cosine floor, e.g. 0.80")
+    ap.add_argument("--gemini", action="store_true",
+                    help="also run Gemini grounded Google Search")
+    ap.add_argument("--gemini-only", action="store_true", help="skip paperclip")
+    ap.add_argument("--timeout", type=int, default=300)
+    ap.add_argument("--json", action="store_true")
+    args = ap.parse_args()
+
+    if args.boolean and args.mode not in ("keyword", "all"):
+        print("allpapers-search: --bool requires bm25; use --mode keyword",
+              file=sys.stderr)
+        return 2
+
+    rankers = [] if args.gemini_only else MODE_RANKERS[args.mode]
+    if rankers and not shutil.which("paperclip"):
+        print("allpapers-search: paperclip is not installed — "
+              "curl -fsSL https://paperclip.gxl.ai/install.sh | bash", file=sys.stderr)
+        rankers = []
+
+    key = ""
+    if args.gemini or args.gemini_only:
+        cfg = {}
+        cfgpath = Path(os.getenv("ALLPAPERS_CONFIG_DIR",
+                                 Path.home() / ".config" / "allpapers")) / "config.json"
+        if cfgpath.exists():
+            try:
+                cfg = json.loads(cfgpath.read_text())
+            except (ValueError, OSError):
+                cfg = {}
+        key = os.getenv("GEMINI_API_KEY") or cfg.get("gemini_api_key", "")
+        if not key:
+            print("allpapers-search: no Gemini key. Get one free at "
+                  "https://aistudio.google.com/apikey then run\n"
+                  "  scripts/allpapers-setup --set gemini_api_key=...",
+                  file=sys.stderr)
+            if args.gemini_only:
+                return 2
+            key = ""
+
+    merged: dict = {}
+    order: list = []
+    notes: list = []
+    sets: dict = {}
+    gem: dict = {}
+
+    with cf.ThreadPoolExecutor(max_workers=len(rankers) + 1) as pool:
+        futures = {pool.submit(run_paperclip, args.query, rk, args): rk
+                   for rk in rankers}
+        gfut = pool.submit(run_gemini, args.query, key, args.timeout) if key else None
+
+        for fut in cf.as_completed(futures):
+            rk = futures[fut]
+            try:
+                hits, setid, note = fut.result()
+            except Exception as e:                      # noqa: BLE001
+                notes.append(f"{rk}: {e}")
+                continue
+            if note:
+                notes.append(note)
+            if setid:
+                sets[rk] = setid
+            for h in hits:
+                k = h["id"] or L._norm_title(h["title"])
+                if k in merged:
+                    if rk not in merged[k]["found_by"]:
+                        merged[k]["found_by"].append(rk)
+                    merged[k]["best_rank"] = min(merged[k]["best_rank"], h["rank"])
+                else:
+                    h["best_rank"] = h["rank"]
+                    merged[k] = h
+                    order.append(k)
+        if gfut:
+            try:
+                gem = gfut.result()
+            except Exception as e:                      # noqa: BLE001
+                gem = {"error": str(e)}
+
+    rows = [merged[k] for k in order]
+    # More rankers agreeing is a stronger signal than any single ranker's order.
+    rows.sort(key=lambda h: (-len(h["found_by"]), h["best_rank"]))
+
+    if args.json:
+        print(json.dumps({"query": args.query, "mode": args.mode,
+                          "limit": args.limit, "sort": args.sort,
+                          "result_sets": sets, "notes": notes,
+                          "results": rows, "gemini": gem}, indent=2))
+        return 0 if rows or gem.get("citations") else 1
+
+    if rows:
+        multi = sum(1 for h in rows if len(h["found_by"]) > 1)
+        print(f"{len(rows)} papers  ({args.mode}, -n {args.limit}, sort {args.sort})"
+              + (f", {multi} found by more than one ranker" if len(rankers) > 1 else ""))
+        print()
+        for h in rows:
+            by = "+".join(h["found_by"])
+            print(f"  {h['title'][:96]}")
+            if h["authors"]:
+                print(f"    {h['authors'][:96]}")
+            print(f"    {h['id'] or '(no id)'}  {h['source']}  {h['date']}  [{by}]")
+            if h.get("url"):
+                print(f"    {h['url']}")
+        if sets:
+            print("\n  result sets — narrow inside one instead of re-querying:")
+            for rk, sid in sets.items():
+                print(f"    {rk:<11} {sid}   paperclip grep PATTERN --from {sid}")
+    elif rankers:
+        print("no paperclip results")
+
+    for n in notes:
+        print(f"note: {n}", file=sys.stderr)
+
+    if gem:
+        # flush: the failure below goes to stderr, and an unflushed stdout
+        # header would print after it.
+        print("\n--- Gemini grounded web search "
+              f"({gem.get('model', GEMINI_MODEL)}) ---", flush=True)
+        if gem.get("error"):
+            print(f"  failed: {gem['error']}", file=sys.stderr)
+        else:
+            if gem.get("endpoint"):
+                print(f"  endpoint: {gem['endpoint']}")
+            for n in gem.get("notes") or []:
+                print(f"  note: {n}", file=sys.stderr)
+            if gem.get("search_queries"):
+                print(f"  searched: {'; '.join(gem['search_queries'])}")
+            print()
+            print(gem.get("text", "") or "  (no text returned)")
+            if gem.get("citations"):
+                print("\n  cited sources:")
+                for c in gem["citations"]:
+                    print(f"    {c['title'] or '(untitled)'} — {c['url']}")
+            ids = identifiers_in(gem.get("text", ""))
+            if ids:
+                print("\n  identifiers named above — confirm each one, a grounded "
+                      "answer can still misattribute:")
+                for i in ids:
+                    print(f"    scripts/allpapers-locate {i}")
+
+    return 0 if rows or gem.get("citations") else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

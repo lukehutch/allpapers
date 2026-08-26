@@ -1,0 +1,894 @@
+#!/usr/bin/env python3
+"""Generate a normalised BibTeX entry from an authoritative index.
+
+Never write a .bib entry by hand or from memory. This fetches it from the index
+that actually registered the work, then fixes the things indexes reliably get
+wrong for LaTeX.
+
+Authority order, by what the work *is* rather than by convenience:
+
+  INSPIRE-HEP  physics — cleanest BibTeX anywhere, canonical Author:YYYYxx keys,
+               page ranges already in LaTeX form, and it covers pre-arXiv papers
+  Crossref     anything with a Crossref DOI — the registration record itself
+  DataCite     10.48550 (arXiv), Zenodo, Dryad — poorer entries, but authoritative
+  arXiv Atom   preprints with no published version
+  PubMed       biomedical records with no DOI at all, which is most older material
+               (measured: 48 of 60 sampled 1955 PubMed records carry no DOI)
+
+Google Scholar is consulted on every lookup, and trusted last for every field.
+It sometimes carries a venue for grey literature no registration index has, so
+skipping it loses information; but it does not reliably return the paper you
+asked for even on an exact title-restricted query, and its citation-export
+endpoint answers HTTP 404, so it never outranks a registration record. Its
+contribution — or its silence — is reported either way. See reference/scholar.md.
+
+Entries are merged field by field rather than taken whole from one index: no
+single index is right about everything, and the disagreements are printed so
+they can be checked rather than assumed away. See reference/bibtex.md.
+"""
+from __future__ import annotations
+
+import argparse
+import importlib.util
+import json
+import re
+import sys
+import unicodedata
+import xml.etree.ElementTree as ET
+from pathlib import Path
+
+# Reuse the identifier parsing and resolution already written and exercised in
+# allpapers-locate rather than keeping a second copy of it in step.
+_spec = importlib.util.spec_from_loader(
+    "allpapers_locate",
+    importlib.machinery.SourceFileLoader(
+        "allpapers_locate", str(Path(__file__).with_name("allpapers-locate"))),
+)
+L = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(L)
+
+BIBTEX_ACCEPT = {"Accept": "application/x-bibtex", "User-Agent": L.UA}
+
+# Spaces pdflatex has no mapping for, and invisible characters that survive a
+# copy-paste. Folded to a plain space and to nothing respectively.
+EXOTIC_SPACE = ("\u00a0", "\u2000", "\u2001", "\u2002", "\u2003", "\u2004",
+                "\u2005", "\u2006", "\u2007", "\u2008", "\u2009", "\u200a",
+                "\u202f", "\u205f", "\u3000")
+ZERO_WIDTH = ("\u200b", "\u200c", "\u200d", "\ufeff")
+ARXIV_NS = {"a": "http://www.w3.org/2005/Atom", "ar": "http://arxiv.org/schemas/atom"}
+
+
+SECRET_PARAMS = {"email", "mailto", "api_key", "apikey", "apiKey", "key",
+                 "api-key", "tool", "access_token", "token"}
+
+
+def scrub_url(url: str) -> str:
+    """Drop credential and contact parameters before a URL is written anywhere.
+
+    The polite-pool parameters carry the user's own email address, and bib.md is
+    committed. A URL recorded for provenance has to be the address that was
+    fetched, minus anything private — dropping these leaves it re-fetchable.
+    """
+    if not url or "?" not in url:
+        return url
+    base, _, qs = url.partition("?")
+    kept = [kv for kv in qs.split("&")
+            if kv.partition("=")[0].lower() not in
+            {p.lower() for p in SECRET_PARAMS}]
+    return base + ("?" + "&".join(kept) if kept else "")
+
+
+def get(url: str, headers: dict | None = None, **kw):
+    """As L.get, but lets a caller add headers instead of replacing them.
+
+    L.get pins headers= itself, so passing the BibTeX Accept header through it
+    raises TypeError.
+    """
+    try:
+        return L.requests.get(url, headers={**L.HEADERS, **(headers or {})},
+                              timeout=L.TIMEOUT, **kw)
+    except L.requests.RequestException:
+        return None
+
+
+# --------------------------------------------------------------------------
+# fetching from each authority
+# --------------------------------------------------------------------------
+
+def from_inspire(ids: L.Ids) -> tuple[str | None, str, str]:
+    """INSPIRE-HEP. Returns (bibtex, agency, url). Silent miss for non-physics."""
+    for path in ([f"arxiv/{ids.arxiv}"] if ids.arxiv else []) + \
+                ([f"doi/{ids.doi}"] if ids.doi else []):
+        r = get(f"https://inspirehep.net/api/{path}", headers=BIBTEX_ACCEPT,
+                allow_redirects=True)
+        if r is not None and r.ok and r.text.lstrip().startswith("@"):
+            return r.text.strip(), "INSPIRE-HEP", scrub_url(r.url)
+    return None, "", ""
+
+
+def from_doi_negotiation(doi: str) -> tuple[str | None, str, str]:
+    """Crossref or DataCite, whichever registered the DOI. doi.org routes it."""
+    r = get(f"https://doi.org/{doi}", headers=BIBTEX_ACCEPT, allow_redirects=True)
+    if r is None or not r.ok or not r.text.lstrip().startswith("@"):
+        return None, "", ""
+    cr = L.get(f"https://api.crossref.org/works/{doi}",
+               params={"mailto": L.EMAIL or None})
+    agency = "Crossref" if (cr is not None and cr.ok) else "DataCite"
+    return r.text.strip(), agency, f"https://doi.org/{doi}"
+
+
+def from_arxiv(arxiv: str) -> tuple[str | None, str, str, dict]:
+    """Build the standard eprint entry from the Atom API.
+
+    Also returns the published DOI and journal_ref arXiv holds, which is how a
+    preprint entry gets upgraded to the published one.
+    """
+    r = L.get("https://export.arxiv.org/api/query", params={"id_list": arxiv})
+    if r is None or not r.ok:
+        return None, "", "", {}
+    try:
+        e = ET.fromstring(r.text).find("a:entry", ARXIV_NS)
+    except ET.ParseError:
+        return None, "", "", {}
+    if e is None:
+        return None, "", "", {}
+    title = " ".join((e.findtext("a:title", "", ARXIV_NS)).split())
+    authors = [a.findtext("a:name", "", ARXIV_NS) for a in e.findall("a:author", ARXIV_NS)]
+    year = (e.findtext("a:published", "", ARXIV_NS) or "")[:4]
+    pc = e.find("ar:primary_category", ARXIV_NS)
+    extra = {"doi": e.findtext("ar:doi", None, ARXIV_NS),
+             "journal_ref": e.findtext("ar:journal_ref", None, ARXIV_NS)}
+    key = cite_key(authors[0] if authors else "unknown", year, title)
+    bib = (f"@misc{{{key},\n"
+           f"  title         = {{{title}}},\n"
+           f"  author        = {{{' and '.join(flip_name(a) for a in authors)}}},\n"
+           f"  year          = {{{year}}},\n"
+           f"  eprint        = {{{arxiv}}},\n"
+           f"  archivePrefix = {{arXiv}},\n"
+           f"  primaryClass  = {{{pc.get('term') if pc is not None else ''}}},\n"
+           f"  url           = {{https://arxiv.org/abs/{arxiv}}}\n}}")
+    return bib, "arXiv", scrub_url(r.url), extra
+
+
+def from_pubmed(pmid: str) -> tuple[str | None, str, str]:
+    """For records with no DOI, which is most pre-1990s biomedical literature.
+
+    efetch, not esummary: only efetch carries full author forenames. esummary
+    gives MEDLINE-style "WATSON JD", which is not what a bib entry wants.
+    """
+    r = L.get("https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi",
+              params={"db": "pubmed", "id": pmid, "retmode": "xml",
+                      "tool": "allpapers", "email": L.EMAIL or None})
+    if r is None or not r.ok:
+        return None, "", ""
+    try:
+        art = ET.fromstring(r.text).find(".//Article")
+    except ET.ParseError:
+        return None, "", ""
+    if art is None:
+        return None, "", ""
+    authors = [f"{a.findtext('LastName','')}, {a.findtext('ForeName','')}".strip(", ")
+               for a in art.findall("AuthorList/Author") if a.findtext("LastName")]
+    title = (art.findtext("ArticleTitle") or "").rstrip(".")
+    ji = art.find("Journal/JournalIssue")
+    year = (ji.findtext("PubDate/Year") or (ji.findtext("PubDate/MedlineDate") or "")[:4]
+            ) if ji is not None else ""
+    fields = {
+        "title": title,
+        "author": " and ".join(authors),
+        "journal": art.findtext("Journal/Title") or "",
+        "volume": ji.findtext("Volume") if ji is not None else "",
+        "number": ji.findtext("Issue") if ji is not None else "",
+        "pages": art.findtext("Pagination/MedlinePgn") or "",
+        "year": year,
+    }
+    first = authors[0].split(",")[0] if authors else "anon"
+    key = cite_key(first, year, title)
+    body = ",\n".join(f"  {k:<8}= {{{v}}}" for k, v in fields.items() if v)
+    return (f"@article{{{key},\n{body},\n  pmid    = {{{pmid}}}\n}}", "PubMed",
+            scrub_url(r.url))
+
+
+SCHOLAR_URL = "https://scholar.google.com/scholar"
+# Matched against the entity-unescaped page, not the raw HTML: Scholar writes the
+# apostrophe as `can&#39;t`, so a literal match on this string never fires and the
+# block is reported as "this paper is not in Scholar". Measured 2026-08-25.
+SCHOLAR_THROTTLE = "system can't perform the operation now"
+SCHOLAR_NO_QUERY = "Please enter a query in the search box above"
+SCHOLAR_CAPTCHA = ("gs_captcha_ccl", "recaptcha", "captcha-form", "rc-doscaptcha-body")
+
+
+def from_scholar(ids: L.Ids) -> tuple[str | None, str, str, str]:
+    """Google Scholar, as a gap-filler of last resort. Returns (bib, src, note, url).
+
+    Scholar is queried because it sometimes carries a venue for grey literature
+    that no registration index has. It is trusted last for every field, for
+    reasons measured and recorded in reference/scholar.md: it does not reliably
+    return the paper you asked for even on an exact title-restricted query, and
+    its own citation-export endpoint answers HTTP 404.
+
+    It also throttles, and the throttle is invisible to the usual detection —
+    HTTP 200, no CAPTCHA marker, no results, and the words "The system can't
+    perform the operation now." in the body. That case is reported, never
+    mistaken for "this paper is not in Scholar".
+    """
+    title = ids.title or ""
+    if not title:
+        return None, "", "no title to search Scholar with", ""
+    r = get(SCHOLAR_URL, params={"hl": "en", "as_epq": title, "as_occt": "title"})
+    if r is None or not r.ok:
+        return (None, "", f"Scholar unreachable "
+                f"(http={getattr(r, 'status_code', 'n/a')})", SCHOLAR_URL)
+    if any(m in r.text for m in SCHOLAR_CAPTCHA):
+        return None, "", "Scholar served a CAPTCHA — not fought, skipped", scrub_url(r.url)
+
+    blocks = re.findall(r'<h3 class="gs_rt".*?</h3>.*?<div class="gs_a">(.*?)</div>',
+                        r.text, re.S)
+    titles = [_strip_tags(t) for t in
+              re.findall(r'<h3 class="gs_rt".*?>(.*?)</h3>', r.text, re.S)]
+    if not titles:
+        # No result markup at all. Say which kind of nothing this is: a block
+        # reads identically to an empty result set unless you look at the prose,
+        # and calling a block "not in Scholar" is the worse of the two errors.
+        visible = _visible_text(r.text)
+        if SCHOLAR_THROTTLE in visible or SCHOLAR_NO_QUERY in visible:
+            return None, "", ("Scholar refused the query — HTTP 200, no CAPTCHA, "
+                              "no results, and the page reads \"The system can't "
+                              "perform the operation now\". This is a block, not "
+                              "an absence: do not read it as 'not in Scholar'"
+                              ), scrub_url(r.url)
+        return None, "", "Scholar returned no parseable results", scrub_url(r.url)
+
+    # Scholar ranks by relevance, not by title match, so the requested paper is
+    # often not first and is sometimes absent. Only an exact title match counts.
+    want = L._norm_title(title)
+    idx = next((i for i, t in enumerate(titles) if L._norm_title(t) == want), None)
+    if idx is None or idx >= len(blocks):
+        return None, "", (f"Scholar returned {len(titles)} results, none whose title "
+                          f"matches — discarded rather than guessed"), scrub_url(r.url)
+
+    # "A Vaswani, N Shazeer… - Advances in neural information…, 2017 - host.com"
+    meta = _strip_tags(blocks[idx])
+    parts = [p.strip() for p in meta.split(" - ")]
+    authors = parts[0] if parts else ""
+    venue_year = parts[1] if len(parts) > 1 else ""
+    ym = re.search(r"\b(1[6-9]\d{2}|20\d{2})\b", venue_year)
+    venue = re.sub(r",?\s*\b(1[6-9]\d{2}|20\d{2})\b\s*$", "", venue_year).strip(" ,")
+    fields = {"title": titles[idx].strip()}
+    if authors:
+        # Scholar prints initials-first and truncates long lists with an ellipsis.
+        fields["author"] = " and ".join(
+            a.strip() for a in authors.split(",") if a.strip() and "…" not in a)
+    if venue:
+        fields["journal"] = venue
+    if ym:
+        fields["year"] = ym.group(1)
+    body = ",\n".join(f"  {k:<8} = {{{v}}}" for k, v in fields.items())
+    key = cite_key(fields.get("author", "anon").split(" and ")[0].split()[-1]
+                   if fields.get("author") else "anon",
+                   fields.get("year", ""), fields["title"])
+    return f"@article{{{key},\n{body}\n}}", "Scholar", "", scrub_url(r.url)
+
+
+def _visible_text(page: str) -> str:
+    """The prose a reader would see: scripts and styles dropped, entities decoded.
+
+    Marker strings have to be matched against this rather than the raw HTML.
+    Scholar writes `can&#39;t`, so a literal apostrophe never matches, and its
+    stylesheet contains the class names used to detect results — counting those
+    in the raw page finds 24 "gs_rt" in a page with no results in it.
+    """
+    import html as _h
+    body = re.sub(r"<(script|style)[^>]*>.*?</\1>", " ", page, flags=re.S | re.I)
+    return " ".join(_h.unescape(re.sub(r"<[^>]+>", " ", body)).split())
+
+
+def _strip_tags(h: str) -> str:
+    import html as _h
+    return " ".join(_h.unescape(re.sub(r"<[^>]+>", "", h)).split())
+
+
+# --------------------------------------------------------------------------
+# normalisation
+# --------------------------------------------------------------------------
+
+def flip_name(full: str) -> str:
+    parts = full.split()
+    return f"{parts[-1]}, {' '.join(parts[:-1])}" if len(parts) > 1 else full
+
+
+def ascii_fold(s: str) -> str:
+    return "".join(c for c in unicodedata.normalize("NFKD", s)
+                   if not unicodedata.combining(c) and (c.isalnum()))
+
+
+def cite_key(surname: str, year: str, title: str) -> str:
+    stop = {"the", "a", "an", "on", "of", "in", "for", "and", "to", "is", "are"}
+    word = next((w for w in re.findall(r"[A-Za-z]+", title) if w.lower() not in stop), "")
+    return f"{ascii_fold(surname.split(',')[0])}{year}{ascii_fold(word).lower()}"
+
+
+DASHES = dict.fromkeys(map(ord, "‐‑‒–—―"), None)
+
+
+def expand_pages(start: str, end: str) -> str:
+    """MEDLINE abbreviates the closing page: 1609-10 means 1609-1610.
+
+    Taken verbatim into a bib entry it becomes a page range that runs backwards.
+    Expand by borrowing the leading digits of the start page.
+    """
+    if end.isdigit() and start.isdigit() and len(end) < len(start):
+        return start[: len(start) - len(end)] + end
+    return end
+
+
+def reflow(bib: str) -> str:
+    """Put one field per line.
+
+    Crossref's content-negotiated BibTeX arrives as a single long line, which is
+    unreadable in a .bib file and produces a whole-entry diff for a one-field
+    change. INSPIRE already formats this way.
+    """
+    m = re.match(r"\s*@(\w+)\s*\{\s*([^,]+),(.*)\}\s*$", bib, re.S)
+    if not m or "\n" in bib.strip()[:-1]:
+        return bib
+    kind, key, body = m.group(1), m.group(2).strip(), m.group(3)
+    fields, depth, cur = [], 0, ""
+    for ch in body:
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+        if ch == "," and depth == 0:
+            fields.append(cur)
+            cur = ""
+        else:
+            cur += ch
+    fields.append(cur)
+    parsed = []
+    for f in fields:
+        if "=" not in f:
+            continue
+        name, _, val = f.partition("=")
+        parsed.append((name.strip(), val.strip()))
+    if not parsed:
+        return bib
+    w = max(len(n) for n, _ in parsed)
+    lines = ",\n".join(f"  {n:<{w}} = {v}" for n, v in parsed)
+    return f"@{kind}{{{key},\n{lines}\n}}"
+
+
+MONTHS = ["jan", "feb", "mar", "apr", "may", "jun",
+          "jul", "aug", "sep", "oct", "nov", "dec"]
+
+
+def normalise(bib: str) -> tuple[str, list[str]]:
+    """Fix what indexes get wrong for LaTeX. Returns (bibtex, list of changes)."""
+    notes = []
+
+    def fix_pages(m):
+        inner = m.group(2)
+        # Crossref emits a literal U+2013 EN DASH in page ranges (measured on
+        # 10.1038/nature14539: '436–444'). BibTeX wants '--'; an en-dash
+        # here is a mojibake risk and renders as a hyphen at best.
+        if any(ord(c) in DASHES for c in inner):
+            inner = re.sub(r"[‐-―]+", "--", inner)
+            notes.append("page range: en/em-dash replaced with --")
+        elif re.fullmatch(r"\s*\d+\s*-\s*\d+\s*", inner):
+            inner = re.sub(r"\s*-\s*", "--", inner.strip())
+            notes.append("page range: single hyphen replaced with --")
+        if pm := re.fullmatch(r"(\d+)--(\d+)", inner.strip()):
+            widened = expand_pages(pm.group(1), pm.group(2))
+            if widened != pm.group(2):
+                inner = f"{pm.group(1)}--{widened}"
+                notes.append(f"page range: MEDLINE {pm.group(1)}-{pm.group(2)} "
+                             f"expanded to {inner}")
+        return f"{m.group(1)}{{{inner}}}"
+
+    bib = re.sub(r"(pages\s*=\s*)\{([^}]*)\}", fix_pages, bib, flags=re.I)
+
+    # DataCite returns a numeric month and an upper-cased DOI prefix
+    # (measured on 1706.03762: `month = {6}`, `doi = {10.48550/ARXIV.1706.03762}`).
+    # BibTeX styles expect a three-letter month, and the registered form of an
+    # arXiv DOI spells arXiv in mixed case.
+    # Keep the matched prefix so the field stays aligned with its neighbours.
+    if mm := re.search(r"(month\s*=\s*)\{\s*(\d{1,2})\s*\}", bib, re.I):
+        n = int(mm.group(2))
+        if 1 <= n <= 12:
+            bib = bib[:mm.start()] + mm.group(1) + f"{{{MONTHS[n - 1]}}}" + bib[mm.end():]
+            notes.append(f"month: numeric {n} written as {MONTHS[n - 1]}")
+
+    # Crossref's author array can end with an empty element, which reflows into
+    # `... and Zweizig, J. and}` — an author BibTeX will render as a blank name.
+    # Measured on 10.1103/PhysRevLett.116.061102.
+    if am := re.search(r"(author\s*=\s*\{)(.*?)(\},?\n)", bib, re.S):
+        # The dangling separator has no space after it, so splitting on " and "
+        # leaves it stuck to the final name rather than yielding an empty slot.
+        stripped = am.group(2).strip()
+        raw = re.sub(r"\s+and\s*$", "", stripped)
+        names = [n.strip() for n in raw.split(" and ")]
+        empties = sum(1 for n in names if not n)
+        if raw != stripped or empties:
+            fixed = " and ".join(n for n in names if n)
+            bib = bib[:am.start()] + am.group(1) + fixed + am.group(3) + bib[am.end():]
+            # Say which of the two it was. A trailing separator does not produce
+            # an empty slot when the list is split, so reporting a count of
+            # dropped names would print 0 for the case that actually fired.
+            what = []
+            if raw != stripped:
+                what.append("a trailing 'and' with no name after it")
+            if empties:
+                what.append(f"{empties} empty name(s)")
+            notes.append("author: dropped " + " and ".join(what) +
+                         f" from a list of {len(names)}")
+
+    if dm := re.search(r"(10\.48550/)ARXIV\.", bib):
+        bib = bib.replace(dm.group(0), dm.group(1) + "arXiv.")
+        notes.append("doi: 10.48550/ARXIV rewritten to the registered 10.48550/arXiv")
+
+    # Crossref's BibTeX export lower-cases the DOI while its own `url` field
+    # keeps the registered casing. Measured on 10.1103/PhysRevD.59.043516, which
+    # comes back as DOI={10.1103/physrevd.59.043516} beside
+    # url={http://dx.doi.org/10.1103/PhysRevD.59.043516}. DOIs resolve
+    # case-insensitively so nothing breaks, but the entry then disagrees with
+    # every other citation of the same paper, and with this record's own
+    # **DOI** line.
+    dfield = re.search(r"(doi\s*=\s*\{)([^}]*)(\})", bib, re.I)
+    durl = re.search(r"url\s*=\s*\{[^}]*?(10\.\d{4,9}/[^}\s]+)\}", bib, re.I)
+    if (dfield and durl and dfield.group(2) != durl.group(1)
+            and dfield.group(2).lower() == durl.group(1).lower()):
+        bib = (bib[:dfield.start()] + dfield.group(1) + durl.group(1)
+               + dfield.group(3) + bib[dfield.end():])
+        notes.append(f"doi: case restored from the url field "
+                     f"({dfield.group(2)} -> {durl.group(1)})")
+
+    # APS deposits author initials separated by U+2009 THIN SPACE, and Crossref
+    # passes it through: the LIGO detection paper comes back with 325 of them
+    # ("Abbott, B.\u2009P."). Under pdflatex with utf8 inputenc that is not a
+    # cosmetic problem — it is a hard build failure, measured:
+    #     ! LaTeX Error: Unicode character (U+2009) not set up for use with LaTeX.
+    # Accented letters and curly quotes compile fine, so only the exotic spaces
+    # are touched; the names keep their diacritics.
+    if any(c in bib for c in EXOTIC_SPACE) or any(c in bib for c in ZERO_WIDTH):
+        counts = {c: bib.count(c) for c in EXOTIC_SPACE + ZERO_WIDTH if c in bib}
+        for c in EXOTIC_SPACE:
+            bib = bib.replace(c, " ")
+        for c in ZERO_WIDTH:
+            bib = bib.replace(c, "")
+        notes.append("whitespace: " + ", ".join(
+            f"{n}x U+{ord(c):04X}" for c, n in counts.items()) +
+            " replaced — pdflatex cannot typeset them")
+
+    if "dx.doi.org" in bib:
+        bib = bib.replace("http://dx.doi.org/", "https://doi.org/")
+        bib = bib.replace("https://dx.doi.org/", "https://doi.org/")
+        notes.append("url: dx.doi.org rewritten to https://doi.org")
+
+    # DataCite keys the entry on the whole DOI URL, which is not a usable \cite.
+    if m := re.match(r"@(\w+)\{(https?://[^,]+),", bib):
+        doi = re.search(r"doi\s*=\s*\{([^}]*)\}", bib, re.I)
+        auth = re.search(r"author\s*=\s*\{([^}]*)\}", bib, re.I)
+        yr = re.search(r"year\s*=\s*\{(\d{4})\}", bib, re.I)
+        ttl = re.search(r"title\s*=\s*\{([^}]*)\}", bib, re.I)
+        if auth and yr:
+            new = cite_key(auth.group(1).split(" and ")[0], yr.group(1),
+                           ttl.group(1) if ttl else "")
+            bib = bib.replace(m.group(2), new, 1)
+            notes.append(f"cite key: URL-shaped DataCite key replaced with {new}")
+
+    if tm := re.search(r"(title\s*=\s*\{)([^{}]*)(\})", bib, re.I):
+        protected, tnote = protect_title(tm.group(2))
+        if tnote:
+            bib = (bib[:tm.start()] + tm.group(1) + protected + tm.group(3)
+                   + bib[tm.end():])
+            notes.append(tnote)
+
+    reflowed = reflow(bib)
+    if reflowed != bib:
+        bib = reflowed
+        notes.append("reflowed to one field per line")
+    return bib, notes
+
+
+def field(bib: str, name: str) -> str:
+    """Pull one field's value out of an entry.
+
+    Handles both delimiters and INSPIRE's nested form, title = "{Deep learning}",
+    where the braces are title-casing protection and not part of the value.
+    """
+    m = re.search(rf"\b{name}\s*=\s*", bib, re.I)
+    if not m:
+        return ""
+    rest = bib[m.end():].lstrip()
+    if rest[:1] in "{\"":
+        close = {"{": "}", '"': '"'}[rest[0]]
+        depth, out = 0, []
+        for ch in rest:
+            if ch in "{\"" and not out:
+                depth = 1
+                continue
+            if ch == "{":
+                depth += 1
+            elif ch == close:
+                depth -= 1
+                if depth == 0:
+                    break
+            out.append(ch)
+        val = "".join(out)
+    else:
+        val = rest.split(",")[0]
+    return val.strip().strip("{}").strip()
+
+
+# --------------------------------------------------------------------------
+# composite entries
+# --------------------------------------------------------------------------
+
+# Which index to believe for each field, best first. Every ordering here was
+# settled by fetching the same paper from each index and comparing, not by
+# reputation. The comparison that produced it is recorded in reference/bibtex.md.
+FIELD_TRUST = {
+    # INSPIRE writes page ranges in LaTeX form already; Crossref emits a literal
+    # U+2013 EN DASH; PubMed abbreviates the closing page (436-44 for 436-444).
+    "pages":        ["INSPIRE-HEP", "Crossref", "PubMed", "DataCite", "arXiv"],
+    # Crossref *is* the DOI registration record. DataCite answers for an arXiv
+    # DOI with the preprint's own DOI, which is not the published article's.
+    "doi":          ["Crossref", "INSPIRE-HEP", "PubMed", "DataCite", "arXiv"],
+    # INSPIRE routinely omits the issue number; the other two carry it.
+    "number":       ["Crossref", "PubMed", "INSPIRE-HEP"],
+    "volume":       ["Crossref", "INSPIRE-HEP", "PubMed"],
+    # Only Crossref carries these at all. DataCite's publisher for an arXiv DOI
+    # is the string "arXiv", which is wrong for a journal article.
+    "publisher":    ["Crossref"],
+    "issn":         ["Crossref"],
+    "month":        ["Crossref", "INSPIRE-HEP"],
+    # arXiv is the registry of its own identifiers.
+    "eprint":       ["arXiv", "INSPIRE-HEP"],
+    "archiveprefix": ["arXiv", "INSPIRE-HEP"],
+    "primaryclass": ["arXiv", "INSPIRE-HEP"],
+    # INSPIRE preserves LaTeX maths in titles ("The Large $N$ limit"), which the
+    # others flatten to "The Large N Limit".
+    "title":        ["INSPIRE-HEP", "Crossref", "PubMed", "arXiv", "DataCite"],
+    # Crossref's journal name is the full title; INSPIRE abbreviates it to the
+    # physics house style ("Adv. Theor. Math. Phys."). Full is less ambiguous and
+    # a .bst that wants the short form can abbreviate; going the other way needs
+    # a lookup. Pass --prefer INSPIRE-HEP for the physics convention.
+    "journal":      ["Crossref", "INSPIRE-HEP", "PubMed"],
+    "booktitle":    ["INSPIRE-HEP", "Crossref"],
+    # The publisher deposits Crossref's author list from the article itself.
+    "author":       ["Crossref", "INSPIRE-HEP", "PubMed", "arXiv", "DataCite"],
+    # arXiv and DataCite report the preprint submission year, not the year of
+    # publication. Measured on hep-th/9711200: 1997 against a 1998 journal date.
+    "year":         ["Crossref", "INSPIRE-HEP", "PubMed", "arXiv", "DataCite"],
+    "pmid":         ["PubMed"],
+    "reportnumber": ["INSPIRE-HEP"],
+    "url":          ["Crossref", "arXiv", "DataCite"],
+}
+FALLBACK_TRUST = ["Crossref", "INSPIRE-HEP", "PubMed", "arXiv", "DataCite",
+                  "Scholar"]
+
+# Not wanted in a citation entry, and actively noisy when they arrive. DataCite
+# returns arXiv's whole distribution licence as `copyright` and repeats subject
+# terms in `keywords` ("FOS: Physical sciences, FOS: Physical sciences").
+DROP_FIELDS = {"copyright", "abstract", "language", "keywords", "urldate",
+               "collection", "note"}
+
+# The cite key comes from whichever entry we trust most overall, because a key
+# is an identifier other people may already be using — INSPIRE's Author:YYYYxx
+# keys in particular are the shared currency of the physics literature.
+KEY_TRUST = ["INSPIRE-HEP", "Crossref", "PubMed", "arXiv", "DataCite"]
+
+# Scholar is appended to every field order rather than listed in any of them:
+# it fills a hole no registration index could fill, and never outranks one.
+for _f in FIELD_TRUST:
+    if _f not in ("doi", "pmid", "eprint", "archiveprefix", "primaryclass",
+                  "reportnumber", "issn", "url"):
+        FIELD_TRUST[_f] = FIELD_TRUST[_f] + ["Scholar"]
+
+
+def entry_type(bib: str) -> str:
+    m = re.match(r"\s*@(\w+)", bib)
+    return m.group(1).lower() if m else "misc"
+
+
+def all_fields(bib: str) -> dict:
+    """Every top-level field of an entry, lowercased keys, values unwrapped."""
+    out = {}
+    for name in re.findall(r"[,{]\s*([A-Za-z][A-Za-z0-9_-]*)\s*=", bib):
+        v = field(bib, name)
+        if v:
+            out.setdefault(name.lower(), v)
+    return out
+
+
+def merge(entries: dict, prefer: str | None = None) -> tuple[str, dict, list]:
+    """Build one entry from several, choosing each field from its best source.
+
+    Returns (bibtex, provenance{field: source}, notes). A field present in only
+    one index is taken from it; where indexes disagree the trust order decides,
+    and every disagreement is reported so it can be checked rather than assumed.
+    """
+    parsed = {src: all_fields(b) for src, b in entries.items()}
+    notes = []
+
+    def order(f):
+        # FIELD_TRUST is exclusive where it lists a field: naming only Crossref
+        # for `publisher` means no other index may supply it. Without that,
+        # DataCite's publisher for an arXiv DOI — the literal string "arXiv" —
+        # leaks into the entry for a paper published in a journal.
+        if f in FIELD_TRUST:
+            base = list(FIELD_TRUST[f])
+        else:
+            base = list(FALLBACK_TRUST)
+        if prefer and prefer in base:
+            base = [prefer] + [s for s in base if s != prefer]
+        return base
+
+    merged, prov = {}, {}
+    for f in {k for d in parsed.values() for k in d} - DROP_FIELDS:
+        havers = [s for s in order(f) if parsed.get(s, {}).get(f)]
+        if not havers:
+            continue
+        winner = havers[0]
+        merged[f] = parsed[winner][f]
+        prov[f] = winner
+        distinct = {parsed[s][f] for s in havers}
+        if len(distinct) > 1:
+            others = "; ".join(f"{s}={parsed[s][f][:48]!r}" for s in havers[1:])
+            notes.append(f"{f}: took {winner}={merged[f][:48]!r} over {others}")
+
+    # An entry with a journal is an article whatever the preprint record called
+    # it; DataCite labels every arXiv deposit @misc.
+    types = {src: entry_type(b) for src, b in entries.items()}
+    if merged.get("journal") and merged.get("volume"):
+        kind = "article"
+    elif merged.get("booktitle"):
+        kind = "inproceedings"
+    else:
+        kind = next((types[s] for s in KEY_TRUST if s in types), "misc")
+
+    key = ""
+    for s in ([prefer] if prefer else []) + KEY_TRUST:
+        if s in entries:
+            m = re.match(r"\s*@\w+\s*\{\s*([^,]+),", entries[s])
+            if m and not m.group(1).strip().lower().startswith("http"):
+                key = m.group(1).strip()
+                break
+    if not key:
+        key = cite_key(merged.get("author", "anon").split(" and ")[0],
+                       merged.get("year", ""), merged.get("title", ""))
+
+    # A stable, readable field order rather than dict order.
+    ORDER = ["author", "title", "journal", "booktitle", "volume", "number",
+             "pages", "year", "month", "publisher", "issn", "doi", "eprint",
+             "archiveprefix", "primaryclass", "reportnumber", "pmid", "url"]
+    keys = [f for f in ORDER if f in merged] + \
+           sorted(f for f in merged if f not in ORDER)
+    w = max(len(k) for k in keys)
+    body = ",\n".join(f"  {k:<{w}} = {{{merged[k]}}}" for k in keys)
+    return f"@{kind}{{{key},\n{body}\n}}", prov, notes
+
+
+def gather(ids: L.Ids) -> tuple[dict, dict, dict]:
+    """Fetch the same work from every index that has it.
+
+    The third return value maps each index to the URL it actually answered at,
+    so verification/bib.md can list every location consulted rather than one.
+    """
+    entries, extra, urls = {}, {}, {}
+    b, ag, url = from_inspire(ids)
+    if b:
+        entries[ag], urls[ag] = b, url
+    if ids.doi:
+        b, ag, url = from_doi_negotiation(ids.doi)
+        if b:
+            entries[ag], urls[ag] = b, url
+    if ids.arxiv:
+        b, ag, url, extra = from_arxiv(ids.arxiv)
+        if b:
+            entries[ag], urls[ag] = b, url
+    if ids.pmid:
+        b, ag, url = from_pubmed(ids.pmid)
+        if b:
+            entries[ag], urls[ag] = b, url
+
+    # Scholar is searched by title, so it needs one. When the input was an
+    # identifier, borrow the title the registration indexes just returned.
+    if not ids.title and entries:
+        for src in KEY_TRUST:
+            if src in entries and field(entries[src], "title"):
+                ids.title = field(entries[src], "title")
+                break
+    b, ag, note, url = from_scholar(ids)
+    if b:
+        entries[ag], urls[ag] = b, url
+    elif url:
+        urls["Scholar (no usable record)"] = url
+    if note:
+        extra["scholar_note"] = note
+    return entries, extra, urls
+
+
+def protect_title(title: str) -> tuple[str, str]:
+    """Brace-protect what a .bst must not case-fold. Returns (title, note).
+
+    Most standard styles — plain, unsrt, abbrv, alpha — run `change.case$` over
+    the title and lowercase everything not inside braces. BibTeX has no idea what
+    maths is, so `$N$` becomes `$n$`. Measured: INSPIRE deposits Maldacena's title
+    as "{The Large $N$ limit of superconformal field theories and supergravity}",
+    where the outer braces are the protection; reading the value strips them, and
+    the entry then renders as "The large n limit" under plain.bst.
+
+    Only the parts that carry meaning in their case are protected — maths spans
+    and words with a capital after the first letter (AdS, QCD, DNA, McDonald).
+    Ordinary capitalised words are left alone, because a style that sentence-cases
+    them is doing what the person who chose it asked for.
+    """
+    if not title or "{" in title or "}" in title:
+        return title, ""          # already protected, or hand-tuned: leave it
+    out = re.sub(r"\$[^$]+\$", lambda m: "{" + m.group(0) + "}", title)
+    maths = out != title
+
+    words = []
+    for w in out.split(" "):
+        core = w.strip(".,;:!?()[]'\"")
+        if "{" not in w and len(core) > 1 and re.search(r"[A-Z]", core[1:]):
+            lead = w[:len(w) - len(w.lstrip(".,;:!?()[]'\""))]
+            tail = w[len(lead) + len(core):]
+            w = f"{lead}{{{core}}}{tail}"
+        words.append(w)
+    out = " ".join(words)
+
+    if out == title:
+        return title, ""
+    what = []
+    if maths:
+        what.append("maths")
+    if any("{" in w and "$" not in w for w in out.split(" ")):
+        what.append("mixed-case words")
+    return out, ("title: brace-protected " + " and ".join(what) +
+                 " so a case-folding .bst cannot rewrite them")
+
+
+def page_label(pages: str) -> str:
+    """`pp. 436--444` for a range, but a bare `043516` for an article number.
+
+    APS and similar journals put a six-digit article ID in the pages field, and
+    writing `pp. 043516` claims a page range that does not exist.
+    """
+    if not pages:
+        return ""
+    return f"pp. {pages}" if re.search(r"[-–—]", pages) else pages
+
+
+def bibmd_stub(bib: str, ids: L.Ids, authority: str, urls: dict) -> str:
+    """A bib.md record carrying only what a metadata lookup can know.
+
+    `allpapers-fetch` writes the full record, including the abstract, the
+    justification and the local copies. This is the same shape minus the parts
+    that need the full text, for when you are fixing up an entry by hand.
+    """
+    key = re.match(r"@\w+\{([^,]+),", bib)
+    lines = [
+        f"## {key.group(1) if key else 'KEY'}",
+        "",
+        "```bibtex", bib.strip(), "```", "",
+        f"- **Verified authors**: {field(bib, 'author') or '—'}",
+        f"- **Verified title**: {field(bib, 'title') or '—'}",
+        "- **Journal**: " + " ".join(x for x in [
+            field(bib, "journal") or field(bib, "booktitle") or "—",
+            field(bib, "volume"),
+            page_label(field(bib, "pages")),
+            f"({field(bib, 'year')})" if field(bib, "year") else "",
+        ] if x),
+        f"- **DOI**: {ids.doi or field(bib, 'doi') or '—'}",
+        f"- **arXiv**: {ids.arxiv or field(bib, 'eprint') or '—'}",
+        f"- **Metadata cross-checked against**: {authority}",
+        "- **Source URLs**:",
+    ]
+    for src, u in sorted((urls or {}).items()):
+        lines.append(f"  - `{u}` — metadata ({src})")
+    lines.append("  - TODO — the URL each piece of full text was read from")
+    lines += [
+        "- **Abstract**: TODO — paste it here if any index carries one",
+        "- **Justification**: TODO — why this paper is or is not relevant",
+        "- **Claims supported**:",
+        "  - Claim: TODO — what the .tex says about this reference",
+        '    Quote: "TODO — verbatim from the paper" (p.X / Sec.Y / #L<n>)',
+        "- **Status**: TODO — VERIFIED / DISCREPANCY / UNSUPPORTED",
+        "- **Notes**: —",
+    ]
+    return "\n".join(lines)
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(
+        description="Generate a normalised composite BibTeX entry, merging every "
+                    "authoritative index that has the work.")
+    ap.add_argument("identifier", help="DOI, arXiv ID, PMID, PMCID, URL or title")
+    ap.add_argument("--bibmd", action="store_true",
+                    help="print a verification/bib.md record carrying the entry")
+    ap.add_argument("--single", action="store_true",
+                    help="take the single best index instead of merging")
+    ap.add_argument("--prefer", metavar="INDEX",
+                    help="promote one index above the trust order "
+                         "(INSPIRE-HEP, Crossref, PubMed, arXiv, DataCite, Scholar)")
+    ap.add_argument("--raw", action="store_true",
+                    help="print each index's BibTeX unmodified, without merging")
+    ap.add_argument("--json", action="store_true")
+    args = ap.parse_args()
+
+    ids = L.resolve(L.parse_identifier(args.identifier))
+    if not any([ids.doi, ids.arxiv, ids.pmid, ids.pmcid, ids.title]):
+        print(f"allpapers-bibtex: could not resolve {args.identifier!r}",
+              file=sys.stderr)
+        return 1
+
+    entries, extra, urls = gather(ids)
+    if not entries:
+        print(f"allpapers-bibtex: no index had a record for {args.identifier!r}",
+              file=sys.stderr)
+        return 1
+
+    if args.raw:
+        for src, b in entries.items():
+            print(f"% ---- {src}\n{b}\n")
+        return 0
+
+    warnings: list[str] = []
+    if note := extra.get("scholar_note"):
+        warnings.append(f"Scholar contributed nothing: {note}")
+
+    if args.single or len(entries) == 1:
+        src = next((s_ for s_ in ([args.prefer] if args.prefer else []) + KEY_TRUST
+                    if s_ in entries), next(iter(entries)))
+        bib, authority, prov, mnotes = entries[src], src, {}, []
+    else:
+        bib, prov, mnotes = merge(entries, args.prefer)
+        authority = "+".join(sorted(entries))
+
+    entry_doi = field(bib, "doi")
+    ax_doi = extra.get("doi")
+    if ax_doi and entry_doi and ax_doi.lower() != entry_doi.lower():
+        warnings.append(
+            f"arXiv lists the published DOI as {ax_doi}, but this entry carries "
+            f"{entry_doi}. Measured on hep-th/9711200, where both are live and both "
+            f"are in Crossref but they name different journals — the paper was "
+            f"reprinted. Decide which publication you are citing.")
+
+    jr = extra.get("journal_ref")
+    if jr and (vol := field(bib, "volume")) and vol not in re.findall(r"\d+", jr):
+        warnings.append(
+            f"arXiv journal_ref {jr!r} does not match volume {vol} in this entry.")
+
+    bib, notes = normalise(bib)
+
+    if args.json:
+        print(json.dumps({
+            "identifiers": {k: v for k, v in ids.__dict__.items() if v},
+            "indexes_consulted": sorted(entries),
+            "index_urls": urls,
+            "authority": authority, "bibtex": bib,
+            "field_provenance": prov, "merge_notes": mnotes,
+            "normalisations": notes, "warnings": warnings}, indent=2))
+        return 0
+
+    print(bib)
+    print(f"\n% indexes merged: {', '.join(sorted(entries))}", file=sys.stderr)
+    for src, u in sorted(urls.items()):
+        print(f"%   {src:<14} <- {u}", file=sys.stderr)
+    for f_, src in sorted(prov.items()):
+        print(f"%   {f_:<14} <- {src}", file=sys.stderr)
+    for n in mnotes:
+        print(f"% disagreement — {n}", file=sys.stderr)
+    for n in notes:
+        print(f"% normalised — {n}", file=sys.stderr)
+    for w in warnings:
+        print(f"\nwarning: {w}", file=sys.stderr)
+    if args.bibmd:
+        print("\n" + bibmd_stub(bib, ids, authority, urls))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

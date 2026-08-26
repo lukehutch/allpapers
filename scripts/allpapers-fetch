@@ -1,0 +1,739 @@
+#!/usr/bin/env python3
+"""Fetch every retrievable form of a paper, then record the decision about it.
+
+Retrieval and commitment are deliberately two steps, because a search returns
+candidates and only some of them earn a place in the permanent record.
+
+    # 1. fetch to a temp directory — nothing touches the repository yet
+    allpapers-fetch "10.1038/nature14539" --stage
+
+    # 2a. it is relevant: copy it in and record why
+    allpapers-fetch 10.1038/nature14539 --promote /tmp/allpapers-ab12cd \\
+        --justification "Defines the deep-learning taxonomy Sec. 2 relies on" \\
+        --claim "Backpropagation is described as the workhorse of training" \\
+        --quote "Backpropagation ... to compute the gradient@p.436"
+
+    # 2b. it looked relevant and is not: record that, keep no files
+    allpapers-fetch 10.1038/nature14539 --reject \\
+        --justification "Review, not a primary source for the claim in Sec. 3"
+
+An exact identifier (DOI, PMID, PMCID, arXiv ID) can skip staging and go
+straight in with --into, since there is nothing to judge. Keyword and semantic
+searches return several candidates, and those must be staged and judged one at
+a time — that is what --stage exists for.
+
+Rejections are recorded only for papers that genuinely looked relevant. A search
+hit that the title and abstract rule out is not written down at all; the record
+is a note to a future session about a real judgement call, not a search log.
+
+Layout under the verification directory:
+
+    verification/
+      bib.md                        canonical record: entry, abstract, justification, quotes
+      source/<citeKey>/
+        <citeKey>.bib               the composite entry on its own
+        latex/                      unpacked arXiv source, when any exists
+        <citeKey>-arxiv-src.tar.gz  the tarball exactly as arXiv served it
+        content.lines               paperclip's extracted, line-numbered text
+        fulltext.xml                Europe PMC JATS, when the paper is in PMC
+        <citeKey>.pdf               the PDF
+        PROVENANCE.json             every URL fetched and what came back
+"""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import importlib.machinery
+import importlib.util
+import json
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+from xml.etree import ElementTree as ET
+
+_spec = importlib.util.spec_from_loader(
+    "allpapers_bibtex",
+    importlib.machinery.SourceFileLoader(
+        "allpapers_bibtex", str(Path(__file__).with_name("allpapers-bibtex"))))
+B = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(B)
+L = B.L
+
+HERE = Path(__file__).resolve().parent
+ARTEFACTS = ("latex", "arxiv-src-payload", "content.lines", "jats-xml", "pdf")
+
+
+def sha256(p: Path) -> str:
+    h = hashlib.sha256()
+    with open(p, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def record(prov: list, kind: str, url: str, path: Path | None, ok: bool, note=""):
+    """Note one artefact. `path` may be a directory (unpacked LaTeX)."""
+    here = path if path and path.exists() else None
+    isdir = bool(here and here.is_dir())
+    if isdir:
+        size = sum(f.stat().st_size for f in here.rglob("*") if f.is_file())
+    else:
+        size = here.stat().st_size if here else 0
+    # scrub_url, not url: a located URL can carry an API key, and both
+    # PROVENANCE.json and bib.md are files the user commits.
+    prov.append({"artefact": kind, "url": B.scrub_url(url), "ok": ok,
+                 "path": (here.name + "/" if isdir else here.name) if here else None,
+                 "bytes": size,
+                 "sha256": None if isdir or not here else sha256(here),
+                 "note": note})
+
+
+# ---------------------------------------------------------------- artefacts
+
+def fetch_arxiv_source(arxiv: str, dest: Path, key: str, prov: list) -> bool:
+    """Unpack the LaTeX, and keep the tarball arXiv actually served.
+
+    Exit 3 is arXiv's PDF-only case: no source exists, but arxiv-source has
+    saved the PDF, and that PDF is the file the author submitted, so it is kept
+    rather than discarded.
+    """
+    latex = dest / "latex"
+    url = f"https://arxiv.org/src/{arxiv}"
+    try:
+        p = subprocess.run([str(HERE / "arxiv-source"), arxiv, "-k", "-o", str(latex)],
+                           capture_output=True, text=True, timeout=300)
+    except (OSError, subprocess.SubprocessError) as e:
+        record(prov, "latex", url, None, False, str(e))
+        return False
+
+    if p.returncode == 3:
+        pdfs = list(latex.glob("*.pdf"))
+        if pdfs:
+            target = dest / f"{key}.pdf"
+            shutil.move(str(pdfs[0]), target)
+            record(prov, "pdf", url, target, True,
+                   "arXiv PDF-only submission — the submitted file itself")
+        shutil.rmtree(latex, ignore_errors=True)
+        record(prov, "latex", url, None, False,
+               "author submitted PDF only, no LaTeX source exists")
+        return False
+
+    if p.returncode != 0:
+        shutil.rmtree(latex, ignore_errors=True)
+        record(prov, "latex", url, None, False,
+               ((p.stderr or "").strip().splitlines() or ["failed"])[-1])
+        return False
+
+    payload = latex / ".arxiv-src-payload"
+    if payload.exists():
+        tarball = dest / f"{key}-arxiv-src.tar.gz"
+        shutil.move(str(payload), tarball)
+        record(prov, "arxiv-src-payload", url, tarball, True,
+               "the bytes arXiv served, before unpacking")
+    tex = sorted(latex.rglob("*.tex"))
+    record(prov, "latex", url, latex, True,
+           f"{sum(1 for _ in latex.rglob('*'))} files, {len(tex)} .tex")
+    return True
+
+
+PREVIEW_BANNER = re.compile(r"^\[~[\d,]+ tokens total, showing first")
+
+
+def paperclip_line_count(paper_path: str) -> int | None:
+    """paperclip ls prints `content.lines  (129 lines)`."""
+    try:
+        p = subprocess.run(["paperclip", "ls", paper_path + "/"],
+                           capture_output=True, text=True, timeout=90)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    m = re.search(r"content\.lines\s*\((\d+)\s+lines\)", p.stdout)
+    return int(m.group(1)) if m else None
+
+
+def fetch_paperclip(paper_path: str, dest: Path, prov: list) -> bool:
+    """paperclip's extracted text. Line numbers here are what #L45 refers to.
+
+    Deliberately `head -n <count>` and not `cat`: paperclip's `cat` truncates a
+    large file to a ~1000-character preview headed by a token-count banner and
+    still exits 0, so a `cat` would save a summary of the paper under a name
+    that says it is the paper. Measured on arx_1706.03762 — 129 lines, `cat`
+    returned 33 lines and 1,974 bytes, `head -n 500` returned all 130 and 40,019.
+    """
+    if not shutil.which("paperclip"):
+        record(prov, "content.lines", paper_path, None, False, "paperclip not installed")
+        return False
+    target = f"{paper_path}/content.lines"
+    n = paperclip_line_count(paper_path)
+    try:
+        p = subprocess.run(["paperclip", "head", "-n", str((n + 10) if n else 100000),
+                            target], capture_output=True, text=True, timeout=300)
+    except (OSError, subprocess.SubprocessError) as e:
+        record(prov, "content.lines", target, None, False, str(e))
+        return False
+    body = p.stdout
+    if p.returncode != 0 or not body.strip():
+        record(prov, "content.lines", target, None, False,
+               (p.stderr or "empty response").strip()[:160])
+        return False
+    if PREVIEW_BANNER.match(body.lstrip()):
+        record(prov, "content.lines", target, None, False,
+               "paperclip returned a preview, not the file")
+        return False
+    got = body.count("\n")
+    if n and got < n:
+        record(prov, "content.lines", target, None, False,
+               f"short read: {got} of {n} lines")
+        return False
+    out = dest / "content.lines"
+    out.write_text(body, encoding="utf-8")
+    record(prov, "content.lines", target, out, True,
+           f"{got} lines" + (f" of {n}" if n else "") + ", citable as #L<n>")
+    return True
+
+
+def fetch_url(url: str, dest: Path, prov: list, kind: str,
+              want_pdf: bool = False) -> bool:
+    r = B.get(url, allow_redirects=True)
+    if r is None or not r.ok:
+        record(prov, kind, url, None, False,
+               f"http={getattr(r, 'status_code', 'unreachable')}")
+        return False
+    body = r.content
+    ctype = r.headers.get("Content-Type", "")
+    if want_pdf and not body.startswith(b"%PDF"):
+        # A repository landing page answers 200 with HTML; saving that as a .pdf
+        # produces a file that looks fetched and is not the paper.
+        record(prov, kind, url, None, False,
+               f"not a PDF (content-type {ctype!r}, starts {body[:8]!r})")
+        return False
+    dest.write_bytes(body)
+    record(prov, kind, url, dest, True, f"content-type {ctype}")
+    return True
+
+
+# ----------------------------------------------------------------- abstract
+
+def strip_jats(text: str) -> str:
+    text = re.sub(r"<[^>]+>", " ", text or "")
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def paperclip_meta(paper_path: str) -> dict:
+    """meta.json for a paperclip document: title, doi, authors, pub_date, abstract."""
+    try:
+        p = subprocess.run(["paperclip", "cat", f"{paper_path}/meta.json"],
+                           capture_output=True, text=True, timeout=90)
+        return json.loads(p.stdout[p.stdout.index("{"):p.stdout.rindex("}") + 1])
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return {}
+
+
+def fetch_abstract(ids, locations: list) -> tuple[str, str]:
+    """The abstract, and where it came from. Cheapest good source first.
+
+    paperclip leads because its meta.json is already indexed and carries the
+    abstract outright, so it costs one call and no parsing.
+    """
+    for l in locations:
+        if l["source"] == "paperclip":
+            a = (paperclip_meta(l["url"].removesuffix("/content.lines")) or {}
+                 ).get("abstract")
+            if a and a.strip():
+                return re.sub(r"\s+", " ", a).strip(), "paperclip meta.json"
+            break
+
+    if ids.pmid:
+        r = B.get("https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi",
+                  params={"db": "pubmed", "id": ids.pmid, "retmode": "xml"})
+        if r is not None and r.ok:
+            try:
+                root = ET.fromstring(r.content)
+                parts = []
+                for node in root.iter("AbstractText"):
+                    label = node.get("Label")
+                    body = "".join(node.itertext()).strip()
+                    if body:
+                        parts.append(f"{label}: {body}" if label else body)
+                if parts:
+                    return " ".join(parts), "PubMed efetch"
+            except ET.ParseError:
+                pass
+
+    if ids.arxiv:
+        r = B.get("https://export.arxiv.org/api/query",
+                  params={"id_list": ids.arxiv, "max_results": 1})
+        if r is not None and r.ok:
+            try:
+                root = ET.fromstring(r.content)
+                ns = {"a": "http://www.w3.org/2005/Atom"}
+                node = root.find(".//a:entry/a:summary", ns)
+                if node is not None and (node.text or "").strip():
+                    return re.sub(r"\s+", " ", node.text).strip(), "arXiv Atom API"
+            except ET.ParseError:
+                pass
+
+    if ids.doi:
+        r = B.get(f"https://api.crossref.org/works/{ids.doi}")
+        if r is not None and r.ok:
+            try:
+                a = r.json().get("message", {}).get("abstract")
+            except ValueError:
+                a = None
+            if a:
+                return strip_jats(a), "Crossref"
+
+    # OpenAlex deposits abstracts for papers whose full text is free nowhere,
+    # stored as a word -> positions map that has to be rebuilt in order.
+    target = (f"https://api.openalex.org/works/doi:{ids.doi}" if ids.doi else
+              f"https://api.openalex.org/works/pmid:{ids.pmid}" if ids.pmid else "")
+    if target:
+        r = B.get(target)
+        if r is not None and r.ok:
+            try:
+                inv = r.json().get("abstract_inverted_index")
+            except ValueError:
+                inv = None
+            if inv:
+                slots: dict[int, str] = {}
+                for word, positions in inv.items():
+                    for pos in positions:
+                        slots[pos] = word
+                if slots:
+                    text = " ".join(slots[i] for i in sorted(slots))
+                    return text, "OpenAlex abstract_inverted_index"
+    return "", ""
+
+
+# ------------------------------------------------------------------- bib.md
+
+HEADER = "# Citation Verification Record\n"
+REJECTED_HEADING = "## Examined and rejected"
+RETIRED_HEADING = "## Retired entries"
+# Both special sections are headed `##`, the same level STANDARDS.md gives a
+# per-key record, so records inside them are headed `###` to keep the nesting
+# unambiguous. A kept record stays at `##`, exactly as the format shows.
+SECTION = {"kept": (None, "##"), "rejected": (REJECTED_HEADING, "###"),
+           "retired": (RETIRED_HEADING, "###")}
+
+
+def wrap(text: str, width: int = 88, indent: str = "  ") -> str:
+    out, line = [], indent
+    for word in text.split():
+        if len(line) + len(word) + 1 > width and line.strip():
+            out.append(line.rstrip())
+            line = indent
+        line += word + " "
+    if line.strip():
+        out.append(line.rstrip())
+    return "\n".join(out)
+
+
+def build_record(key, bib, ids, consulted, prov, rel, args,
+                 locations=(), disp="kept") -> str:
+    """One bib.md record. Same shape whether the paper was kept or declined."""
+    lines = [f"{SECTION[disp][1]} {key}", ""]
+    if disp == "rejected":
+        lines += ["**Examined and rejected — evaluated as a citation candidate and "
+                  "declined. Do not re-fetch this paper to answer the same "
+                  "question.**", ""]
+    elif disp == "retired":
+        lines += ["**Retired — no longer cited. The entry below is complete, so it "
+                  "can be restored verbatim if it is needed again.**", ""]
+    lines += ["```bibtex", bib.strip(), "```", ""]
+    lines += [
+        f"- **Verified authors**: {B.field(bib, 'author') or '—'}",
+        f"- **Verified title**: {B.field(bib, 'title') or '—'}",
+        "- **Journal**: " + " ".join(x for x in [
+            B.field(bib, "journal") or B.field(bib, "booktitle") or "—",
+            B.field(bib, "volume"),
+            B.page_label(B.field(bib, "pages")),
+            f"({B.field(bib, 'year')})" if B.field(bib, "year") else "",
+        ] if x),
+        f"- **DOI**: {ids.doi or B.field(bib, 'doi') or '—'}",
+        f"- **arXiv**: {ids.arxiv or B.field(bib, 'eprint') or '—'}",
+        f"- **Metadata cross-checked against**: "
+        f"{', '.join(consulted['answered']) or 'nothing — see notes'}",
+    ]
+    used = [p for p in prov if p["ok"]]
+    # Every URL that contributed, not just one: a single entry is normally
+    # assembled from several metadata indexes and several full-text channels,
+    # and a record naming one of them hides where the rest came from.
+    lines.append("- **Source URLs**:")
+    for src, url in sorted(consulted["urls"].items()):
+        lines.append(f"  - `{url}` — metadata ({src})")
+    for p in used:
+        lines.append(f"  - `{p['url']}` — {p['artefact']}"
+                     + (f" → `{p['path']}`" if p["path"] else ""))
+    for l in locations:
+        # A prefix match, not equality: paperclip is located at /papers/<id> and
+        # fetched from /papers/<id>/content.lines, and listing both reads as two
+        # separate channels when it is one.
+        if any(p["url"] == l["url"] or p["url"].startswith(l["url"].rstrip("/") + "/")
+               for p in prov):
+            continue
+        note = f", {l['note']}" if l.get("note") else ""
+        lines.append(f"  - `{l['url']}` — {l['format']} at {l['source']}, "
+                     f"located but not fetched{note}")
+    if args.abstract_text:
+        lines += [f"- **Abstract** ({args.abstract_source}):", "",
+                  wrap(args.abstract_text), ""]
+    else:
+        lines.append("- **Abstract**: not available from any index consulted")
+
+    label = {"kept": "Justification",
+             "rejected": "Reason for rejection",
+             "retired": "Reason retired"}[disp]
+    lines.append(f"- **{label}**: " +
+                 (args.justification or
+                  "TODO — why this paper is or is not relevant to the claim"))
+
+    quotes = list(args.quote or [])
+    claims = list(args.claim or [])
+    if quotes or claims:
+        lines.append("- **Claims supported**:" if disp == "kept"
+                     else "- **Quotes checked**:")
+        for i, q in enumerate(quotes):
+            text, _, locator = q.rpartition("@")
+            if not text:
+                text, locator = q, "locator not given"
+            lines.append(f"  - Claim: {claims[i] if i < len(claims) else '(no claim stated)'}")
+            lines.append(f'    Quote: "{text.strip()}" ({locator.strip()})')
+        for c in claims[len(quotes):]:
+            lines.append(f"  - Claim: {c}")
+            lines.append("    Quote: UNSUPPORTED — no verbatim quote recorded")
+    elif disp == "kept":
+        lines += ["- **Claims supported**:",
+                  "  - Claim: TODO — what the citing text says about this reference",
+                  '    Quote: "TODO — verbatim, from the text fetched above" '
+                  "(p.X / Sec.Y / #L<n>)"]
+    else:
+        lines.append("- **Quotes checked**: none — the decision rests on the "
+                     "metadata and abstract above, so no full text was read")
+
+    lines.append({"kept": f"- **Status**: {args.status}",
+                  "rejected": "- **Status**: REJECTED — examined and not cited",
+                  "retired": "- **Status**: RETIRED — was cited, now orphaned"}[disp])
+
+    if rel:
+        lines.append(f"- **Local copies**: `{rel}/`")
+        for p in used:
+            digest = f", sha256 {p['sha256'][:12]}" if p["sha256"] else ""
+            lines.append(f"  - `{p['path']}` — {p['artefact']}, "
+                         f"{p['bytes']:,} bytes{digest}")
+    elif disp == "rejected":
+        lines.append("- **Local copies**: none kept — the paper was not cited")
+    missed = [p for p in prov if not p["ok"]]
+    if missed:
+        lines.append("- **Not retrievable**:")
+        for p in missed:
+            at = f" from `{p['url']}`" if p["url"] else ""
+            lines.append(f"  - {p['artefact']}{at} — {p['note']}")
+    if consulted["silent"]:
+        lines.append("- **Indexes with no record**: " + ", ".join(consulted["silent"]))
+    lines.append(f"- **Notes**: {args.notes or chr(8212)}")
+    return "\n".join(lines) + "\n"
+
+
+def upsert(path: Path, key: str, text: str, disp: str) -> str:
+    """Put the record in its section, replacing any record already under this key.
+
+    Rewriting the file wholesale would discard the quotes and verdicts already
+    recorded for other papers, which is the part that took real work.
+    """
+    heading, level = SECTION[disp]
+    if not path.exists():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        body = HEADER + "\n" + (heading + "\n\n" if heading else "")
+        path.write_text(body + text, encoding="utf-8")
+        return "created"
+
+    doc = path.read_text(encoding="utf-8")
+    if not doc.startswith("#"):
+        doc = HEADER + "\n" + doc
+
+    # An existing record for this key wins over section placement: a paper that
+    # moves from kept to rejected must not end up recorded twice.
+    old_pat = re.compile(rf"^#{{2,3}} {re.escape(key)}\s*$.*?(?=^#{{2,3}} |\Z)", re.M | re.S)
+    if m := old_pat.search(doc):
+        old, note = m.group(0), "updated"
+        claims = re.search(r"^- \*\*(?:Claims supported|Quotes checked)\*\*:.*",
+                           old, re.M | re.S)
+        # Keep hand-written quotes and verdicts; regenerate only what is derived.
+        if claims and "TODO —" not in claims.group(0) and \
+                "none — the decision rests" not in claims.group(0):
+            head = re.split(r"^- \*\*(?:Claims supported|Quotes checked)\*\*:",
+                            text, maxsplit=1, flags=re.M)[0]
+            text, note = head + claims.group(0).rstrip() + "\n", "updated (existing quotes kept)"
+        same_section = old.lstrip().startswith(level + " ")
+        doc = old_pat.sub(lambda _: text.rstrip() + "\n\n", doc, count=1)
+        if same_section:
+            path.write_text(doc, encoding="utf-8")
+            return note
+        # The record changed section, so drop it here and re-place it below.
+        doc = old_pat.sub("", doc, count=1)
+        note = note.replace("updated", "moved")
+    else:
+        note = "appended"
+
+    if heading:
+        if heading not in doc:
+            doc = doc.rstrip() + "\n\n" + heading + "\n"
+        # Append at the end of this section: before the next `## ` heading.
+        at = doc.index(heading) + len(heading)
+        nxt = re.search(r"^## ", doc[at:], re.M)
+        cut = at + (nxt.start() if nxt else len(doc[at:]))
+        doc = doc[:cut].rstrip() + "\n\n" + text.rstrip() + "\n\n" + doc[cut:]
+    else:
+        # A kept record belongs above both special sections.
+        cut = min([doc.index(h) for h in (REJECTED_HEADING, RETIRED_HEADING)
+                   if h in doc] or [len(doc)])
+        doc = doc[:cut].rstrip() + "\n\n" + text.rstrip() + "\n\n" + doc[cut:]
+    path.write_text(doc.rstrip() + "\n", encoding="utf-8")
+    return note
+
+
+# ---------------------------------------------------------------------- run
+
+def gather_metadata(identifier: str):
+    """Composite entry plus a record of which indexes answered and which did not."""
+    ids = L.resolve(L.parse_identifier(identifier))
+    entries, extra, urls = B.gather(ids)
+    tried = ["INSPIRE-HEP", "Scholar"]
+    if ids.doi:
+        tried += ["Crossref", "DataCite"]
+    if ids.arxiv:
+        tried.append("arXiv")
+    if ids.pmid:
+        tried.append("PubMed")
+    consulted = {"tried": tried, "answered": sorted(entries),
+                 "silent": sorted(t for t in tried if t not in entries),
+                 "urls": urls}
+    if not entries:
+        return ids, "", "", consulted, extra
+    if len(entries) > 1:
+        bib, _, _ = B.merge(entries, None)
+    else:
+        bib = entries[next(iter(entries))]
+    bib, _ = B.normalise(bib)
+    key = (re.match(r"@\w+\{([^,]+),", bib) or [None, "unknown"])[1]
+    return ids, bib, key, consulted, extra
+
+
+def locate(identifier: str) -> list:
+    try:
+        p = subprocess.run([str(HERE / "allpapers-locate"), identifier, "--json"],
+                           capture_output=True, text=True, timeout=300)
+        return (json.loads(p.stdout) if p.stdout.strip() else {}).get("locations", [])
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return []
+
+
+def download_all(ids, key, dest, locations, want_pdf) -> list:
+    prov: list = []
+    if ids.arxiv:
+        fetch_arxiv_source(ids.arxiv, dest, key, prov)
+    for l in locations:
+        if l["source"] == "paperclip":
+            fetch_paperclip(l["url"], dest, prov)
+            break
+    for l in locations:
+        if "europepmc" in l["url"].lower() and l["url"].endswith("fullTextXML"):
+            fetch_url(l["url"], dest / "fulltext.xml", prov, "jats-xml")
+            break
+    if want_pdf and not any(p["artefact"] == "pdf" and p["ok"] for p in prov):
+        # Only an identity-settled location. An unconfirmed one may be a
+        # different paper, and a wrong PDF filed under this key is worse than none.
+        for l in locations:
+            if l["format"] != "pdf" or L.UNCONFIRMED in (l.get("note") or ""):
+                continue
+            if fetch_url(l["url"], dest / f"{key}.pdf", prov, "pdf", want_pdf=True):
+                break
+        else:
+            record(prov, "pdf", "", None, False,
+                   f"no identity-confirmed PDF among {len(locations)} locations")
+    return prov
+
+
+def report(key, bib, consulted, prov, locations, where, bibmd, abstract_source):
+    """The end-of-run account: everything consulted, and the entry itself."""
+    print(f"\n{'=' * 72}\n  {key}\n{'=' * 72}")
+    print("\nBibliographic indexes consulted")
+    for name in consulted["tried"]:
+        mark = "answered" if name in consulted["answered"] else "no record"
+        url = consulted["urls"].get(name, "")
+        print(f"  [{mark:>9}]  {name}" + (f"  {url}" if url else ""))
+    for name, url in sorted(consulted["urls"].items()):
+        if name not in consulted["tried"]:
+            print(f"  [{'tried':>9}]  {name}  {url}")
+    print(f"\nFull-text channels found by allpapers-locate: {len(locations)}")
+    by_source: dict = {}
+    for l in locations:
+        by_source.setdefault(l["source"], []).append(l["format"])
+    for src, fmts in by_source.items():
+        print(f"  [{'located':>9}]  {src} ({', '.join(sorted(set(fmts)))})")
+    print("\nArtefacts")
+    for p in prov:
+        mark = "saved" if p["ok"] else "MISS"
+        size = f"{p['bytes']:,}b" if p["bytes"] else ""
+        print(f"  [{mark:>9}]  {p['artefact']:<18} {size:>12}  {p['note'][:52]}")
+    print(f"\nAbstract: {abstract_source or 'not available from any index'}")
+    print(f"\nComposite BibTeX entry (merged from "
+          f"{', '.join(consulted['answered']) or 'nothing'}):\n")
+    print(bib.rstrip())
+    if where:
+        print(f"\nFiles: {where}/")
+    if bibmd:
+        print(f"bib.md: {bibmd}")
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(
+        description="Fetch a paper's source and PDF, then record the decision "
+                    "about it in verification/bib.md.")
+    ap.add_argument("identifier", help="DOI, arXiv ID, PMID, PMCID, URL or title")
+    ap.add_argument("--into", default="verification", metavar="DIR",
+                    help="verification directory (default: ./verification)")
+    ap.add_argument("--stage", action="store_true",
+                    help="download to a temp directory and stop; nothing is "
+                         "written to the verification directory")
+    ap.add_argument("--promote", metavar="STAGEDIR",
+                    help="copy an already-staged directory in and record it")
+    ap.add_argument("--reject", action="store_true",
+                    help="record as examined and rejected; keep no files")
+    ap.add_argument("--retire", action="store_true",
+                    help="record as a retired entry: was cited, now orphaned. "
+                         "The entry is kept complete so it can be restored")
+    ap.add_argument("--justification", default="",
+                    help="why the paper is or is not relevant — required to "
+                         "promote or reject")
+    ap.add_argument("--claim", action="append", default=[],
+                    help="a claim the citing text makes; repeatable")
+    ap.add_argument("--quote", action="append", default=[],
+                    help='verbatim quote as "text@locator"; repeatable')
+    ap.add_argument("--status", default="TODO — VERIFIED / DISCREPANCY / UNSUPPORTED")
+    ap.add_argument("--notes", default="")
+    ap.add_argument("--key", help="override the citation key")
+    ap.add_argument("--no-pdf", action="store_true")
+    ap.add_argument("--no-abstract", action="store_true")
+    ap.add_argument("--json", action="store_true")
+    args = ap.parse_args()
+
+    modes = (args.stage, args.promote, args.reject, args.retire)
+    if sum(bool(x) for x in modes) > 1:
+        print("allpapers-fetch: --stage, --promote, --reject and --retire are "
+              "exclusive", file=sys.stderr)
+        return 2
+    if any(modes[1:]) and not args.justification:
+        print("allpapers-fetch: --justification is required to promote, reject or "
+              "retire — it is the field a future session reads to avoid redoing "
+              "this judgement", file=sys.stderr)
+        return 2
+
+    ids, bib, key, consulted, _ = gather_metadata(args.identifier)
+    if not bib:
+        print(f"allpapers-fetch: no index had a record for {args.identifier!r}. "
+              f"Consulted: {', '.join(consulted['tried'])}", file=sys.stderr)
+        return 1
+    key = args.key or key
+
+    args.abstract_text, args.abstract_source = ("", "")
+    locations = locate(args.identifier)
+    if not args.no_abstract:
+        args.abstract_text, args.abstract_source = fetch_abstract(ids, locations)
+
+    root = Path(args.into)
+
+    if args.reject or args.retire:
+        disp = "rejected" if args.reject else "retired"
+        text = build_record(key, bib, ids, consulted, [], None, args,
+                            locations, disp)
+        status = upsert(root / "bib.md", key, text, disp)
+        report(key, bib, consulted, [], locations, None,
+               f"{status} — recorded as {disp}", args.abstract_source)
+        return 0
+
+    if args.promote:
+        stage = Path(args.promote)
+        if not stage.is_dir():
+            print(f"allpapers-fetch: no such staged directory: {stage}",
+                  file=sys.stderr)
+            return 2
+        dest = root / "source" / key
+        dest.mkdir(parents=True, exist_ok=True)
+        for item in stage.iterdir():
+            target = dest / item.name
+            if item.is_dir():
+                shutil.copytree(item, target, dirs_exist_ok=True)
+            else:
+                shutil.copy2(item, target)
+        pf = dest / "PROVENANCE.json"
+        prov = json.loads(pf.read_text()).get("artefacts", []) if pf.exists() else []
+    else:
+        if args.stage:
+            # A colon in the path makes the printed follow-up command read as an
+            # scp target, so keep the staging name shell-plain.
+            safe = re.sub(r"[^A-Za-z0-9._-]", "_", key)
+            dest = Path(tempfile.mkdtemp(prefix=f"allpapers-{safe}-"))
+        else:
+            dest = root / "source" / key
+            dest.mkdir(parents=True, exist_ok=True)
+        (dest / f"{key}.bib").write_text(bib.rstrip() + "\n", encoding="utf-8")
+        prov = download_all(ids, key, dest, locations, not args.no_pdf)
+        (dest / "PROVENANCE.json").write_text(json.dumps(
+            {"identifier": args.identifier, "cite_key": key,
+             "identifiers": {k: v for k, v in ids.__dict__.items() if v},
+             "indexes_answered": consulted["answered"],
+             "indexes_silent": consulted["silent"],
+             "index_urls": consulted["urls"],
+             "located_not_fetched": [l for l in locations if not any(
+                 p["url"] == l["url"] or
+                 p["url"].startswith(l["url"].rstrip("/") + "/") for p in prov)],
+             "abstract_source": args.abstract_source,
+             "artefacts": prov}, indent=2), encoding="utf-8")
+
+    if args.stage:
+        if args.json:
+            print(json.dumps({"cite_key": key, "staged": str(dest),
+                              "consulted": consulted, "bibtex": bib,
+                              "abstract": args.abstract_text,
+                              "abstract_source": args.abstract_source,
+                              "artefacts": prov}, indent=2))
+        else:
+            report(key, bib, consulted, prov, locations, dest, None,
+                   args.abstract_source)
+            print(f"\nStaged only — nothing written to {root}/. Judge the paper, then:"
+                  f"\n  keep:   allpapers-fetch {args.identifier} --promote {dest} "
+                  f"--into {root} --justification '...'"
+                  f"\n  drop:   allpapers-fetch {args.identifier} --reject "
+                  f"--into {root} --justification '...'")
+        return 0 if any(p["ok"] for p in prov) else 1
+
+    try:
+        rel = dest.relative_to(root)
+    except ValueError:
+        rel = dest
+    text = build_record(key, bib, ids, consulted, prov, rel, args,
+                        locations, "kept")
+    status = upsert(root / "bib.md", key, text, "kept")
+
+    if args.json:
+        print(json.dumps({"cite_key": key, "dir": str(dest), "bib_md": status,
+                          "consulted": consulted, "bibtex": bib,
+                          "abstract": args.abstract_text,
+                          "abstract_source": args.abstract_source,
+                          "artefacts": prov}, indent=2))
+    else:
+        report(key, bib, consulted, prov, locations, dest,
+               f"{status} ({root / 'bib.md'})", args.abstract_source)
+        if not any(p["ok"] for p in prov):
+            print("\nNothing was retrievable. The entry and the record exist, so "
+                  "record NO-SOURCE in bib.md rather than quoting this paper.",
+                  file=sys.stderr)
+    return 0 if any(p["ok"] for p in prov) else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

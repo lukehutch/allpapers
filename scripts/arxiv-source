@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+# Fetch an arXiv paper's original submission source (usually LaTeX) and unpack it.
+#
+#   arxiv-source 1205.7018            -> prints the directory it unpacked into
+#   arxiv-source arXiv:1706.03762 -o DIR
+#   arxiv-source hep-th/9711200       -> old-style IDs work too
+#   arxiv-source 1205.7018 -k         -> also keep the payload arXiv served
+#
+# arXiv serves the *submitted* source at https://arxiv.org/src/<id>. That is not
+# always a tarball: see the three shapes handled below. Exits 3 when the author
+# submitted a PDF only, so there is no text source to parse.
+set -euo pipefail
+
+UA="allpapers/1.0 (https://github.com/; mailto:${ALLPAPERS_EMAIL:-anonymous@example.org})"
+outdir=""
+keep=0
+
+usage() { sed -n '2,10p' "$0" | sed 's/^# \?//'; exit 2; }
+
+# Options may come before or after the ID. Stopping at the first positional
+# would reject `arxiv-source 1706.03762 -o DIR`, which is how the usage line
+# above reads and how anyone would naturally type it.
+ids=()
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -o|--out) outdir="${2:?-o needs a directory}"; shift 2 ;;
+    -k|--keep-payload) keep=1; shift ;;
+    -h|--help) usage ;;
+    --) shift; ids+=("$@"); break ;;
+    -*) echo "arxiv-source: unknown option $1" >&2; usage ;;
+    *) ids+=("$1"); shift ;;
+  esac
+done
+[ ${#ids[@]} -eq 1 ] || usage
+
+# Normalise: strip an arXiv: prefix, a version suffix, and a leading URL.
+id="${ids[0]}"
+id="${id#arXiv:}"; id="${id#arxiv:}"
+id="${id##*arxiv.org/abs/}"; id="${id##*arxiv.org/pdf/}"; id="${id##*arxiv.org/src/}"
+id="${id%.pdf}"
+id="${id%v[0-9]}"; id="${id%v[0-9][0-9]}"
+
+if [ -z "$outdir" ]; then
+  outdir="$(mktemp -d "${TMPDIR:-/tmp}/arxiv-XXXXXX")"
+else
+  mkdir -p "$outdir"
+fi
+
+payload="$outdir/.arxiv-src-payload"
+
+code=$(curl -sL --max-time 120 -A "$UA" -w '%{http_code}' -o "$payload" \
+         "https://arxiv.org/src/$id") || {
+  echo "arxiv-source: network error fetching $id" >&2; exit 1; }
+
+if [ "$code" != 200 ]; then
+  echo "arxiv-source: https://arxiv.org/src/$id returned HTTP $code" >&2
+  exit 1
+fi
+
+kind=$(file -b --mime-type "$payload")
+
+case "$kind" in
+  application/gzip|application/x-gzip)
+      # Shape 1: gzipped tar of the whole submission (the common case).
+      # Shape 2: a single gzipped .tex file, no tar wrapper.
+      if tar -tzf "$payload" >/dev/null 2>&1; then
+        tar -xzf "$payload" -C "$outdir"
+      else
+        gunzip -c "$payload" > "$outdir/$(basename "$id" | tr / _).tex"
+      fi
+      ;;
+  application/x-tar)
+      tar -xf "$payload" -C "$outdir" ;;
+  application/pdf)
+      # Shape 3: PDF-only submission. No LaTeX exists; hand back the PDF and
+      # signal that the caller must fall back to PDF text extraction.
+      mv "$payload" "$outdir/$(basename "$id" | tr / _).pdf"
+      echo "$outdir"
+      echo "arxiv-source: PDF-only submission, no LaTeX source available;" \
+           "the PDF itself is in $outdir" >&2
+      exit 3 ;;
+  *)
+      echo "arxiv-source: unrecognised payload type '$kind' for $id" >&2
+      exit 1 ;;
+esac
+
+[ "$keep" = 1 ] || rm -f "$payload"
+echo "$outdir"

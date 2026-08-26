@@ -1,0 +1,602 @@
+#!/usr/bin/env python3
+"""Find every free full-text copy of a paper, ranked by how parseable it is.
+
+    allpapers-locate 10.1038/nature14539
+    allpapers-locate arXiv:1706.03762
+    allpapers-locate PMC3084216 --json
+    allpapers-locate "Attention is all you need"      # title lookup via Crossref
+
+Queries the open indices concurrently and prints one row per full-text location.
+Ranking is by format first (LaTeX source beats XML beats HTML beats PDF), then by
+how reliable the host is, because a parseable format is worth more than a
+convenient one: LaTeX and JATS carry equations and section structure that PDF
+extraction destroys.
+
+Nothing here touches Sci-Hub. This tool reports what is legitimately available;
+if it finds nothing, that is the signal to consider the last-resort route.
+"""
+from __future__ import annotations
+
+import json
+import os
+import re
+import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
+from urllib.parse import quote
+
+import requests
+
+TIMEOUT = 30
+
+# Format ranking. Lower sorts first.
+# "text" is already-extracted plain text: the best possible outcome.
+FORMAT_RANK = {"text": -1, "latex": 0, "xml": 1, "html": 2, "pdf": 3, "unknown": 4}
+
+
+def load_config() -> dict:
+    cfg: dict = {}
+    for path in (Path.home() / ".scihub-cli" / "config.json",
+                 Path(os.getenv("ALLPAPERS_CONFIG_DIR",
+                                Path.home() / ".config" / "allpapers")) / "config.json"):
+        if path.exists():
+            try:
+                cfg.update({k: v for k, v in json.loads(path.read_text()).items() if v})
+            except (json.JSONDecodeError, OSError):
+                pass
+    if os.getenv("ALLPAPERS_EMAIL"):
+        cfg["email"] = os.environ["ALLPAPERS_EMAIL"]
+    if os.getenv("CORE_API_KEY"):
+        cfg["core_api_key"] = os.environ["CORE_API_KEY"]
+    if os.getenv("OPENALEX_API_KEY"):
+        cfg["openalex_api_key"] = os.environ["OPENALEX_API_KEY"]
+    return cfg
+
+
+CFG = load_config()
+EMAIL = CFG.get("email", "")
+OPENALEX_KEY = CFG.get("openalex_api_key", "")
+NCBI_KEY = CFG.get("ncbi_api_key", "")
+UA = f"allpapers/1.0 (mailto:{EMAIL})" if EMAIL else "allpapers/1.0"
+HEADERS = {"User-Agent": UA}
+
+DOI_RE = re.compile(r"\b(10\.\d{4,9}/[^\s\"'<>]+)", re.I)
+ARXIV_NEW_RE = re.compile(r"\b(\d{4}\.\d{4,5})(v\d+)?\b")
+ARXIV_OLD_RE = re.compile(r"\b([a-z-]+(?:\.[A-Z]{2})?/\d{7})(v\d+)?\b")
+PMCID_RE = re.compile(r"\b(PMC\d+)\b", re.I)
+PMID_RE = re.compile(r"^\d{6,8}$")
+
+
+class Ids:
+    def __init__(self) -> None:
+        self.doi = self.arxiv = self.pmcid = self.pmid = self.title = None
+
+    def __repr__(self) -> str:
+        return json.dumps({k: v for k, v in self.__dict__.items() if v}, indent=2)
+
+
+def parse_identifier(raw: str) -> Ids:
+    """Classify the user's input. A DOI wins over an arXiv-looking substring."""
+    ids = Ids()
+    s = raw.strip()
+    s = re.sub(r"^https?://(dx\.)?doi\.org/", "", s, flags=re.I)
+
+    if m := DOI_RE.search(s):
+        ids.doi = m.group(1).rstrip(".,;)")
+        # arXiv DOIs (10.48550/arXiv.NNNN.NNNNN) also give us the arXiv ID.
+        if "10.48550/arxiv." in ids.doi.lower():
+            ids.arxiv = ids.doi.lower().split("10.48550/arxiv.")[1]
+        return ids
+    if m := PMCID_RE.search(s):
+        ids.pmcid = m.group(1).upper()
+        return ids
+    stripped = re.sub(r"^(arxiv:)", "", s, flags=re.I)
+    stripped = re.sub(r"^https?://arxiv\.org/(abs|pdf|src)/", "", stripped, flags=re.I)
+    stripped = re.sub(r"\.pdf$", "", stripped, flags=re.I)
+    if m := ARXIV_NEW_RE.fullmatch(stripped) or ARXIV_OLD_RE.fullmatch(stripped):
+        ids.arxiv = m.group(1)
+        return ids
+    if PMID_RE.fullmatch(s):
+        ids.pmid = s
+        return ids
+    ids.title = s
+    return ids
+
+
+def get(url: str, **kw) -> requests.Response | None:
+    try:
+        return requests.get(url, headers=HEADERS, timeout=TIMEOUT, **kw)
+    except requests.RequestException:
+        return None
+
+
+# --------------------------------------------------------------------------
+# identifier resolution
+# --------------------------------------------------------------------------
+
+def resolve_title(ids: Ids) -> Ids:
+    """Turn a title into a DOI.
+
+    Free-text title search returns near-miss papers readily — "Attention is all
+    you need" matches a 2025 book chapter of the same name as well as the 2017
+    original. So candidates are gathered from OpenAlex, an exact normalised title
+    match is required, and ties break toward the most-cited paper, which for a
+    duplicated title is essentially always the one that is being asked about.
+    A near miss is reported rather than silently accepted.
+    """
+    want = _norm_title(ids.title)
+    r = get("https://api.openalex.org/works",
+            params={"search": ids.title, "per-page": 25, "mailto": EMAIL or None,
+                    "select": "id,doi,title,cited_by_count,publication_year"})
+    candidates = []
+    if r is not None and r.ok:
+        for w in r.json().get("results") or []:
+            if not w.get("doi"):
+                continue
+            candidates.append({
+                "doi": w["doi"].replace("https://doi.org/", ""),
+                "title": w.get("title") or "",
+                "cites": w.get("cited_by_count") or 0,
+                "year": w.get("publication_year"),
+            })
+
+    exact = [c for c in candidates if _norm_title(c["title"]) == want]
+    if exact:
+        best = max(exact, key=lambda c: c["cites"])
+        if len(exact) > 1:
+            others = sorted((c for c in exact if c is not best),
+                            key=lambda c: -c["cites"])[:3]
+            print(f"note: {len(exact)} papers share this exact title; picked the "
+                  f"most-cited ({best['cites']:,} citations, {best['year']}). "
+                  f"Others: " + "; ".join(f"{c['doi']} ({c['cites']:,} cites, {c['year']})"
+                                          for c in others), file=sys.stderr)
+        ids.doi, ids.title = best["doi"], best["title"]
+        return ids
+
+    if candidates:
+        best = candidates[0]
+        print(f"note: no exact title match; best guess is {best['doi']!r} "
+              f"({best['title']!r}). Confirm before citing it.", file=sys.stderr)
+        ids.doi, ids.title = best["doi"], best["title"]
+        return ids
+
+    r = get("https://api.crossref.org/works",
+            params={"query.bibliographic": ids.title, "rows": 1,
+                    "select": "DOI,title", "mailto": EMAIL or None})
+    if r is not None and r.ok:
+        items = r.json().get("message", {}).get("items", [])
+        if items:
+            ids.doi = items[0].get("DOI")
+            print(f"note: fell back to Crossref title search; got {ids.doi!r}. "
+                  f"Confirm before citing it.", file=sys.stderr)
+    return ids
+
+
+def resolve(ids: Ids) -> Ids:
+    """Fill in the identifiers we can derive from the one we were given."""
+    if ids.title and not ids.doi:
+        ids = resolve_title(ids)
+
+    if ids.arxiv and not ids.doi:
+        ids.doi = f"10.48550/arXiv.{ids.arxiv}"
+
+    if ids.pmid or ids.pmcid:
+        idpart = ids.pmcid or ids.pmid
+        # Current host. The long-published /pmc/utils/idconv/v1.0/ URL 301s here.
+        r = get("https://pmc.ncbi.nlm.nih.gov/tools/idconv/api/v1/articles/",
+                params={"ids": idpart, "format": "json", "tool": "allpapers",
+                        "email": EMAIL or "anonymous@example.org",
+                        "api_key": NCBI_KEY or None})
+        if r is not None and r.ok:
+            recs = r.json().get("records", [])
+            if recs:
+                ids.doi = ids.doi or recs[0].get("doi")
+                ids.pmcid = ids.pmcid or recs[0].get("pmcid")
+                ids.pmid = ids.pmid or (str(recs[0]["pmid"]) if recs[0].get("pmid") else None)
+
+    # idconv only knows articles that are *in PMC*: a PMID for anything else comes
+    # back {"status":"error","errmsg":"Identifier not found in PMC"}, leaving no DOI
+    # and so nothing for any probe to work with. eutils carries the DOI for every
+    # PubMed record. (Measured on PMID 26017442, Nature "Deep learning".)
+    if ids.pmid and not ids.doi:
+        r = get("https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi",
+                params={"db": "pubmed", "id": ids.pmid, "retmode": "json",
+                        "tool": "allpapers", "email": EMAIL or None,
+                        "api_key": NCBI_KEY or None})
+        if r is not None and r.ok:
+            try:
+                result = r.json()["result"]
+                rec = result[result["uids"][0]]
+            except (KeyError, IndexError, ValueError):
+                rec = {}
+            for a in rec.get("articleids") or []:
+                if a.get("idtype") == "doi" and a.get("value"):
+                    ids.doi = a["value"]
+            ids.title = ids.title or (rec.get("title") or "").rstrip(".") or None
+
+    # OpenAlex fills the gaps in one call and is authoritative for OA status.
+    if ids.doi and not (ids.pmcid and ids.arxiv):
+        r = get(f"https://api.openalex.org/works/https://doi.org/{quote(ids.doi, safe='')}",
+                params={"mailto": EMAIL or None})
+        if r is not None and r.ok:
+            w = r.json()
+            ext = w.get("ids", {})
+            if not ids.pmcid and ext.get("pmcid"):
+                ids.pmcid = PMCID_RE.search(ext["pmcid"]).group(1).upper() \
+                    if PMCID_RE.search(ext["pmcid"]) else None
+            if not ids.pmid and ext.get("pmid"):
+                ids.pmid = ext["pmid"].rstrip("/").split("/")[-1]
+            if not ids.arxiv:
+                for loc in w.get("locations") or []:
+                    src = (loc.get("source") or {}).get("display_name") or ""
+                    url = loc.get("pdf_url") or loc.get("landing_page_url") or ""
+                    if "arxiv" in src.lower() or "arxiv.org" in url.lower():
+                        if m := ARXIV_NEW_RE.search(url) or ARXIV_OLD_RE.search(url):
+                            ids.arxiv = m.group(1)
+                            break
+            if not ids.title:
+                ids.title = w.get("title")
+
+    # OpenAlex normally carries the PMID (measured: it had one for all three
+    # PubMed-indexed DOIs in a five-DOI spread), so this is a backstop rather
+    # than a gap-filler — it exists because OpenAlex is metered in dollars and
+    # a caller who has spent the day's $0.10 gets nothing from the block above.
+    # PubMed's [AID] field indexes DOIs and publisher PIIs and is free and
+    # unmetered. A DOI that is not in PubMed returns count 0, not a wrong PMID.
+    if ids.doi and not ids.pmid:
+        r = get("https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi",
+                params={"db": "pubmed", "retmode": "json", "tool": "allpapers",
+                        "term": f"{ids.doi}[AID]", "email": EMAIL or None,
+                        "api_key": NCBI_KEY or None})
+        if r is not None and r.ok:
+            hits = (r.json().get("esearchresult") or {}).get("idlist") or []
+            # Exactly one, or it is not an identification.
+            if len(hits) == 1:
+                ids.pmid = hits[0]
+    return ids
+
+
+# --------------------------------------------------------------------------
+# per-source probes; each returns a list of location dicts
+# --------------------------------------------------------------------------
+
+PDF_URL_RE = re.compile(r"\.pdf($|[?&#])|/pdf/|viewcontent\.cgi.*[?&]article=", re.I)
+
+
+def loc(source, fmt, url, note="", diagnostic=False) -> dict:
+    # Indices file direct PDF links under landing_page_url often enough that the
+    # label has to be corrected, or a PDF sorts above genuine HTML.
+    if fmt == "html" and url and PDF_URL_RE.search(url):
+        fmt = "pdf"
+    return {"source": source, "format": fmt, "url": url, "note": note,
+            "diagnostic": diagnostic}
+
+
+def probe_arxiv(ids: Ids) -> list[dict]:
+    if not ids.arxiv:
+        return []
+    out = [
+        loc("arXiv", "latex", f"https://arxiv.org/src/{ids.arxiv}",
+            "submitted source; use scripts/arxiv-source"),
+        loc("arXiv", "html", f"https://arxiv.org/html/{ids.arxiv}",
+            "LaTeXML HTML; widely but not universally available (404 on older "
+            "papers) — ar5iv.labs.arxiv.org/html/ is the fallback"),
+        loc("arXiv", "pdf", f"https://arxiv.org/pdf/{ids.arxiv}", ""),
+    ]
+    return out
+
+
+def probe_unpaywall(ids: Ids) -> list[dict]:
+    if not ids.doi or not EMAIL:
+        return []
+    r = get(f"https://api.unpaywall.org/v2/{quote(ids.doi, safe='/')}",
+            params={"email": EMAIL})
+    if r is None or not r.ok:
+        return []
+    data = r.json()
+    out = []
+    for l in data.get("oa_locations") or []:
+        host = l.get("host_type", "")
+        ver = l.get("version", "")
+        if l.get("url_for_pdf"):
+            out.append(loc("Unpaywall", "pdf", l["url_for_pdf"], f"{host}/{ver}"))
+        if l.get("url_for_landing_page"):
+            out.append(loc("Unpaywall", "html", l["url_for_landing_page"],
+                           f"{host}/{ver} landing page"))
+    return out
+
+
+UNCONFIRMED = "— identity unconfirmed"
+
+
+def identity_certain(url: str, ids: Ids, version: str | None) -> bool:
+    """Is this URL certainly the requested paper, without opening it?
+
+    OpenAlex and CORE both attach repository records to a work by matching, and
+    the match is sometimes a *different* paper that merely cited it. Measured on
+    W1979290264 ("Using thematic analysis in psychology"): two of its five listed
+    locations were confirmed to be other articles entirely.
+
+    Two things settle it without a fetch. A publisher's own publishedVersion is
+    the paper by construction. So is any URL that spells out one of the work's
+    identifiers. Everything else needs its title checked before it is quoted —
+    `version` alone does not settle it, since OpenAlex labels PMC's own copy of a
+    PLoS article `submittedVersion`.
+    """
+    if version == "publishedVersion":
+        return True
+    u = url.lower()
+    own = [ids.doi, ids.arxiv, ids.pmcid, (ids.pmcid or "")[3:]]
+    return any(i and i.lower() in u for i in own)
+
+
+def probe_openalex(ids: Ids) -> list[dict]:
+    if not ids.doi:
+        return []
+    r = get(f"https://api.openalex.org/works/https://doi.org/{quote(ids.doi, safe='')}",
+            params={"mailto": EMAIL or None})
+    if r is None or not r.ok:
+        return []
+    w = r.json()
+    out = []
+
+    # OpenAlex caches its own copies: a GROBID TEI XML parse and the PDF. The XML
+    # is structured text, so it outranks every PDF here. Downloads need a key and
+    # cost $0.01 per file against the account's daily budget.
+    have = w.get("has_content") or {}
+    urls = w.get("content_urls") or {}
+    for key, fmt, label in (("grobid_xml", "xml", "GROBID TEI XML"),
+                            ("pdf", "pdf", "cached PDF")):
+        if have.get(key) and urls.get(key):
+            url = urls[key]
+            if OPENALEX_KEY:
+                note = f"{label}, $0.01/file"
+                url = f"{url}?api_key={OPENALEX_KEY}"
+            else:
+                note = f"{label} — needs a free key: https://openalex.org/users"
+            out.append(loc("OpenAlex content", fmt, url, note))
+
+    # Repository locations are matched to the work automatically, and some of them
+    # are a *different* paper that merely cited this one. Measured on W1979290264
+    # ("Using thematic analysis in psychology"): of its five locations, only the
+    # journal's publishedVersion was the paper. Two of the submittedVersion
+    # repository entries were confirmed to be other articles entirely. So only
+    # publishedVersion is safe to take on trust.
+    for l in w.get("locations") or []:
+        if not l.get("is_oa"):
+            continue
+        src = (l.get("source") or {}).get("display_name") or "repository"
+        url = l.get("pdf_url") or l.get("landing_page_url")
+        if not url:
+            continue
+        note = src if identity_certain(url, ids, l.get("version")) else f"{src} {UNCONFIRMED}"
+        out.append(loc("OpenAlex", "pdf" if l.get("pdf_url") else "html", url, note))
+    return out
+
+
+CORE_NO_FULLTEXT = "Not available for public API users."
+
+
+def _norm_title(t: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", (t or "").lower()).strip()
+
+
+def probe_core(ids: Ids) -> list[dict]:
+    """Query CORE, defending against three confirmed data-quality problems.
+
+    1. Without an API key `fullText` is the literal string
+       "Not available for public API users.", not the paper.
+    2. A `doi:"..."` query can return a record that carries the requested DOI but
+       is a *different* document — typically a thesis that merely cited it. So the
+       title is checked before any location is trusted.
+    3. `sourceFulltextUrls` sometimes holds a dumped reference list rather than a
+       URL, so entries are validated as URLs.
+    """
+    if not ids.doi:
+        return []
+    headers = dict(HEADERS)
+    key = CFG.get("core_api_key")
+    if key:
+        headers["Authorization"] = f"Bearer {key}"
+    try:
+        r = requests.get("https://api.core.ac.uk/v3/search/works/",
+                         params={"q": f'doi:"{ids.doi}"', "limit": 5},
+                         headers=headers, timeout=TIMEOUT)
+    except requests.RequestException:
+        return []
+    if r.status_code == 429:
+        return [loc("CORE", "unknown", "",
+                    "RATE LIMITED (anonymous: 10 requests/10 min) — register a free "
+                    "key at https://core.ac.uk/services/api#form", diagnostic=True)]
+    if not r.ok:
+        return []
+    results = r.json().get("results") or []
+    if not results:
+        return []
+
+    want = _norm_title(ids.title)
+    work = None
+    for cand in results:
+        if not want:
+            work = cand
+            break
+        got = _norm_title(cand.get("title"))
+        # Accept on a clear title overlap in either direction.
+        if got and (got.startswith(want[:60]) or want.startswith(got[:60])):
+            work = cand
+            break
+    if work is None:
+        return [loc("CORE", "unknown", "",
+                    f"{len(results)} record(s) carry this DOI but none match the title "
+                    f"— CORE mis-attribution, ignored", diagnostic=True)]
+
+    out = []
+    ft = work.get("fullText")
+    if ft and ft.strip() != CORE_NO_FULLTEXT and len(ft) > 500:
+        out.append(loc("CORE", "text", f"api.core.ac.uk work {work.get('id')}",
+                       f"fullText field, {len(ft):,} chars — already extracted"))
+    elif ft and ft.strip() == CORE_NO_FULLTEXT:
+        out.append(loc("CORE", "unknown", "",
+                       "full text withheld from anonymous users — register a free key "
+                       "at https://core.ac.uk/services/api#form", diagnostic=True))
+
+    urls = []
+    if work.get("downloadUrl"):
+        urls.append((work["downloadUrl"], "downloadUrl"))
+    for u in work.get("sourceFulltextUrls") or []:
+        urls.append((u, "source repository"))
+    for u, note in urls:
+        if isinstance(u, str) and len(u) < 300 and re.fullmatch(r"https?://\S+", u.strip()):
+            u = u.strip()
+            # The record's title matched, but a sourceFulltextUrls entry can still
+            # point at the repository item CORE aggregated it from, which may be a
+            # thesis that cited the paper rather than the paper.
+            if not identity_certain(u, ids, None):
+                note = f"{note} {UNCONFIRMED}"
+            out.append(loc("CORE", "pdf", u, note))
+    return out
+
+
+def probe_europepmc(ids: Ids) -> list[dict]:
+    if not ids.pmcid:
+        return []
+    out = [
+        loc("Europe PMC", "xml",
+            f"https://www.ebi.ac.uk/europepmc/webservices/rest/{ids.pmcid}/fullTextXML",
+            "JATS XML — structured sections, equations, refs"),
+        loc("Europe PMC", "pdf",
+            f"https://europepmc.org/backend/ptpmcrender.fcgi?accid={ids.pmcid}&blobtype=pdf",
+            ""),
+    ]
+    return out
+
+
+def probe_paperclip(ids: Ids) -> list[dict]:
+    """Ask the local paperclip CLI whether it already holds extracted full text.
+
+    Tries every identifier we hold, best key first: paperclip indexes arXiv papers
+    under their arXiv ID, not under the DataCite DOI arXiv mints for them, so a
+    DOI-only lookup misses them. `lookup` also exits 0 on "No documents found"
+    and ignores --json, so the document ID has to be scraped from the text.
+    """
+    import shutil
+    import subprocess
+    if not shutil.which("paperclip"):
+        return []
+
+    attempts = []
+    if ids.arxiv:
+        attempts.append(("arxiv", ids.arxiv))
+    if ids.pmcid:
+        attempts.append(("pmc", ids.pmcid))
+    if ids.doi:
+        attempts.append(("doi", ids.doi))
+
+    for field, value in attempts:
+        try:
+            p = subprocess.run(["paperclip", "lookup", field, value],
+                               capture_output=True, text=True, timeout=90)
+        except (OSError, subprocess.SubprocessError):
+            continue
+        out = re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", p.stdout)
+        if "No documents found" in out:
+            continue
+        found = re.findall(r"(?:PMC\d+|(?:bio|med|arx)_[\w.\-/]+)", out)
+        if found:
+            seen, uniq = set(), []
+            for d in found:
+                if d not in seen:
+                    seen.add(d)
+                    uniq.append(d)
+            return [loc("paperclip", "text", f"/papers/{d}",
+                        "extracted, line-numbered full text") for d in uniq]
+    return []
+
+
+PROBES = {
+    "paperclip": probe_paperclip,
+    "arXiv": probe_arxiv,
+    "Unpaywall": probe_unpaywall,
+    "OpenAlex": probe_openalex,
+    "CORE": probe_core,
+    "Europe PMC": probe_europepmc,
+}
+
+
+def main() -> int:
+    args = [a for a in sys.argv[1:] if not a.startswith("-")]
+    as_json = "--json" in sys.argv[1:]
+    if not args:
+        print(__doc__)
+        return 2
+
+    ids = resolve(parse_identifier(" ".join(args)))
+
+    locations: list[dict] = []
+    with ThreadPoolExecutor(max_workers=len(PROBES)) as pool:
+        futures = {pool.submit(fn, ids): name for name, fn in PROBES.items()}
+        for fut in as_completed(futures):
+            try:
+                locations.extend(fut.result() or [])
+            except Exception as exc:                      # one dead probe must not kill the run
+                print(f"warning: {futures[fut]} probe failed: {exc}", file=sys.stderr)
+
+    locations.sort(key=lambda l: (FORMAT_RANK.get(l["format"], 9), l["source"]))
+
+    # The same repository copy is routinely reported by several indices; keep the
+    # best-ranked row per URL and record who else offered it.
+    deduped: dict[str, dict] = {}
+    for l in locations:
+        k = l["url"].rstrip("/")
+        if not k:
+            deduped[f"__note__{l['source']}{l['note']}"] = l
+        elif k in deduped:
+            also = deduped[k].setdefault("also", [])
+            if l["source"] not in also and l["source"] != deduped[k]["source"]:
+                also.append(l["source"])
+        else:
+            deduped[k] = l
+    locations = list(deduped.values())
+
+    # A rate-limit or withheld-full-text notice is not a place to read the paper.
+    # Counting one as a location would make the exit code claim a hit, and exit 1
+    # is what tells the caller to move down the ladder.
+    notices = [l for l in locations if l["diagnostic"]]
+    locations = [l for l in locations if not l["diagnostic"]]
+
+    if as_json:
+        print(json.dumps({"identifiers": {k: v for k, v in ids.__dict__.items() if v},
+                          "locations": locations, "notices": notices}, indent=2))
+        return 0 if locations else 1
+
+    print("Identifiers")
+    for k, v in ids.__dict__.items():
+        if v:
+            print(f"  {k:<7}: {v}")
+    for n in notices:
+        print(f"\nnote ({n['source']}): {n['note']}")
+    if not locations:
+        print("\nNo free full text located.")
+        print("Next: Google Scholar, then a web search, then the last-resort route.")
+        return 1
+    print(f"\n{len(locations)} location(s), most parseable first\n")
+    print(f"  {'FORMAT':<8} {'SOURCE':<17} URL")
+    print(f"  {'-'*8} {'-'*17} {'-'*52}")
+    for l in locations:
+        src = l["source"]
+        if l.get("also"):
+            src = f"{src}+{len(l['also'])}"
+        print(f"  {l['format']:<8} {src:<17} {l['url'] or '(no url)'}")
+        if l["note"]:
+            print(f"  {'':<8} {'':<17} └─ {l['note']}")
+        if l.get("also"):
+            print(f"  {'':<8} {'':<17} └─ also reported by: {', '.join(l['also'])}")
+    if any(UNCONFIRMED in (l["note"] or "") for l in locations):
+        print(f"\n  {UNCONFIRMED[2:].capitalize()}: the index matched this repository record to "
+              f"the paper,\n  and that match is sometimes a different article that merely cited it."
+              f"\n  Open it and check the title before quoting it.")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

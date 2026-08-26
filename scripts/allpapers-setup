@@ -1,0 +1,201 @@
+#!/usr/bin/env python3
+"""One-time credential setup for the allpapers skill.
+
+Config lives in ~/.config/allpapers/config.json (mode 0600). The email address
+and the CORE key are mirrored into ~/.scihub-cli/config.json so scihub-cli picks
+up the same values and nobody has to be asked twice.
+
+    allpapers-setup --check          status of every credential; exit 1 if an
+                                     essential one is missing
+    allpapers-setup --set email=me@example.org core_api_key=...
+    allpapers-setup --env            emit `export` lines for a shell
+    allpapers-setup                  interactive prompts for what is missing
+"""
+from __future__ import annotations
+
+import json
+import os
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+CONFIG = Path(os.getenv("ALLPAPERS_CONFIG_DIR", Path.home() / ".config" / "allpapers")) / "config.json"
+SCIHUB_CONFIG = Path.home() / ".scihub-cli" / "config.json"
+
+# key -> (essential?, env var, what it unlocks, where to get it)
+FIELDS = {
+    "email": (
+        True, "ALLPAPERS_EMAIL",
+        "Unpaywall (required by its API), plus the OpenAlex and Crossref polite pools",
+        "your own address; it is sent to those APIs as a contact, nothing else",
+    ),
+    "core_api_key": (
+        False, "CORE_API_KEY",
+        "CORE full text and 10x the anonymous rate limit "
+        "(anonymous is 10 requests/10 min and returns no fullText field)",
+        "https://core.ac.uk/services/api#form  (free, instant)",
+    ),
+    "openalex_api_key": (
+        False, "OPENALEX_API_KEY",
+        "OpenAlex's cached full text (GROBID TEI XML for ~49M works, $0.01/file) "
+        "and a $1/day metadata budget instead of the anonymous $0.10/day",
+        "https://openalex.org/users  (free, instant)",
+    ),
+    "gemini_api_key": (
+        False, "GEMINI_API_KEY",
+        "grounded web search — Gemini runs real Google Search queries and returns "
+        "answers with url_citation annotations, which finds papers a plain web "
+        "search misses (the API rejects unauthenticated callers with HTTP 403)",
+        "https://aistudio.google.com/apikey  (free, instant)",
+    ),
+    "ncbi_api_key": (
+        False, "NCBI_API_KEY",
+        "NCBI eutils at 10 requests/sec instead of 3 — the anonymous limit is "
+        "enforced and returns HTTP 429 mid-sequence, which reads as a lookup "
+        "failure rather than a rate limit",
+        "https://www.ncbi.nlm.nih.gov/account/settings/  (free)",
+    ),
+    "semantic_scholar_api_key": (
+        False, "SEMANTIC_SCHOLAR_API_KEY",
+        "higher Semantic Scholar rate limits",
+        "https://www.semanticscholar.org/product/api#api-key",
+    ),
+    "serpapi_key": (
+        False, "SERPAPI_KEY",
+        "Google Scholar via SerpApi instead of scraping (paid, optional)",
+        "https://serpapi.com/manage-api-key",
+    ),
+}
+
+
+def load() -> dict:
+    cfg: dict = {}
+    if SCIHUB_CONFIG.exists():                       # seed from scihub-cli
+        try:
+            sh = json.loads(SCIHUB_CONFIG.read_text())
+            for k in ("email", "core_api_key"):
+                if sh.get(k):
+                    cfg[k] = sh[k]
+        except (json.JSONDecodeError, OSError):
+            pass
+    if CONFIG.exists():                              # allpapers config wins
+        try:
+            cfg.update({k: v for k, v in json.loads(CONFIG.read_text()).items() if v})
+        except (json.JSONDecodeError, OSError):
+            pass
+    for key, (_, env, _, _) in FIELDS.items():       # env wins over everything
+        if os.getenv(env):
+            cfg[key] = os.environ[env]
+    return cfg
+
+
+def save(cfg: dict) -> None:
+    CONFIG.parent.mkdir(parents=True, exist_ok=True)
+    CONFIG.write_text(json.dumps(cfg, indent=2) + "\n")
+    CONFIG.chmod(0o600)
+    # Mirror the two fields scihub-cli also understands.
+    mirror = {k: cfg[k] for k in ("email", "core_api_key") if cfg.get(k)}
+    if mirror:
+        try:
+            SCIHUB_CONFIG.parent.mkdir(parents=True, exist_ok=True)
+            existing = json.loads(SCIHUB_CONFIG.read_text()) if SCIHUB_CONFIG.exists() else {}
+            existing.update(mirror)
+            SCIHUB_CONFIG.write_text(json.dumps(existing, indent=2) + "\n")
+            SCIHUB_CONFIG.chmod(0o600)
+        except OSError as exc:
+            print(f"warning: could not mirror into {SCIHUB_CONFIG}: {exc}", file=sys.stderr)
+
+
+def paperclip_state() -> str:
+    """Report paperclip install + login state without printing any token."""
+    if not shutil.which("paperclip"):
+        return ("NOT INSTALLED — curl -fsSL https://paperclip.gxl.ai/install.sh | bash")
+    if os.getenv("PAPERCLIP_API_KEY"):
+        return "OK (PAPERCLIP_API_KEY set)"
+    if (Path.home() / ".paperclip" / "credentials.json").exists():
+        try:
+            ver = subprocess.run(["paperclip", "--version"], capture_output=True,
+                                 text=True, timeout=15).stdout.strip()
+        except (OSError, subprocess.SubprocessError):
+            ver = "installed"
+        return f"OK (logged in; {ver})"
+    return "installed but NOT LOGGED IN — run: paperclip login"
+
+
+def check(cfg: dict) -> int:
+    print(f"paperclip                 : {paperclip_state()}")
+    missing_essential = False
+    for key, (essential, env, unlocks, where) in FIELDS.items():
+        tag = "required" if essential else "optional"
+        if cfg.get(key):
+            print(f"{key:<26}: set ({tag})")
+        else:
+            print(f"{key:<26}: MISSING ({tag}) — {unlocks}")
+            print(f"{'':<28}get it: {where}")
+            if essential:
+                missing_essential = True
+    if CONFIG.exists():
+        print(f"\nconfig file: {CONFIG}")
+    else:
+        # Anything shown as set was seeded from scihub-cli or the environment.
+        print(f"\nconfig file: {CONFIG} — not written yet; values shown as set "
+              f"came from {SCIHUB_CONFIG} or the environment")
+    return 1 if missing_essential else 0
+
+
+def main() -> int:
+    args = sys.argv[1:]
+    cfg = load()
+
+    if args and args[0] == "--check":
+        return check(cfg)
+
+    if args and args[0] == "--env":
+        for key, (_, env, _, _) in FIELDS.items():
+            if cfg.get(key):
+                print(f"export {env}={cfg[key]!r}")
+        return 0
+
+    if args and args[0] == "--set":
+        if len(args) < 2:
+            print("--set needs at least one key=value", file=sys.stderr)
+            return 2
+        for pair in args[1:]:
+            if "=" not in pair:
+                print(f"not a key=value pair: {pair}", file=sys.stderr)
+                return 2
+            k, v = pair.split("=", 1)
+            if k not in FIELDS:
+                print(f"unknown key: {k} (known: {', '.join(FIELDS)})", file=sys.stderr)
+                return 2
+            cfg[k] = v.strip()
+        save(cfg)
+        print(f"saved to {CONFIG}")
+        return 0
+
+    if args:
+        print(__doc__)
+        return 2
+
+    # Interactive: ask only for what is missing.
+    print(f"paperclip: {paperclip_state()}\n")
+    for key, (essential, _, unlocks, where) in FIELDS.items():
+        if cfg.get(key):
+            continue
+        print(f"{key} ({'required' if essential else 'optional'}) unlocks {unlocks}")
+        print(f"  where to get it: {where}")
+        try:
+            value = input(f"  {key} (blank to skip): ").strip()
+        except EOFError:
+            print()
+            break
+        if value:
+            cfg[key] = value
+        print()
+    save(cfg)
+    return check(cfg)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
