@@ -404,6 +404,19 @@ it through the Antigravity CLI instead of the API, using an ordinary Google logi
 rather than a billed key. If the output says *"no cited sources: this answer is
 ungrounded"*, the model never searched and nothing in the answer may be relied on.
 
+### Deciding whether you need the paper
+
+Before spending a fetch, `https://www.alphaxiv.org/overview/<arxiv-id>.md` returns
+an AI-generated report on the paper — problem, approach, key claims, numbers — in
+one keyless request, for when the abstract is too thin to tell you whether this is
+the paper you want. `allpapers-locate` prints a note when one exists.
+
+**Triage only: never quote it, cite it or record it.** It is machine-written and
+the file carries no notice saying so — the disclosure exists only in alphaXiv's web
+UI. It is also not a fallback for a paper you cannot reach: an abstract is the
+authors' words and this is not, which makes it weaker evidence than an abstract
+rather than stronger.
+
 ### Getting the full text
 
 For anything on arXiv, the submitted source is the best format that exists:
@@ -415,7 +428,11 @@ ls "$dir"/*.tex
 
 The main file is usually the `.tex` containing `\documentclass`, or the one
 `\input`/`\include` lines point into. Exit 3 means the author submitted a PDF
-only and no LaTeX exists.
+only and no LaTeX exists — in which case `https://www.alphaxiv.org/abs/<id>.md`
+serves that PDF's text layer already extracted as Markdown, in one request with
+no key and no `pdftotext`. It is the authors' own words and quotable, but it sits
+*with* the PDF on the format ladder and not above it: equations do not survive,
+and some older PDFs come back with the words split apart.
 
 Everything else, in the order rule 1 implies:
 
@@ -434,6 +451,10 @@ Everything else, in the order rule 1 implies:
   re-check every quote character by character.
 
 ### The ladder, in short
+
+Before any of it, for an arXiv paper: alphaXiv's AI overview at
+`www.alphaxiv.org/overview/<id>.md` says whether the paper is worth fetching at
+all. That is triage, not a rung — nothing in it is quotable.
 
 1. **paperclip** — already-extracted, line-numbered full text. Fastest, and the
    line numbers make quotes citable as `#L45-L52`.
@@ -607,6 +628,7 @@ and 3 without re-running anything.
 | `reference/ladder.md` | The priority ladder and what to do when a rung fails |
 | `reference/paperclip.md` | The CLI, its REST transport, and why to use the CLI |
 | `reference/arxiv.md` | LaTeX source retrieval, payload shapes, HTML, the Atom API |
+| `reference/alphaxiv.md` | alphaXiv's two keyless Markdown routes, what they cost in fidelity, why the summaries are unquotable |
 | `reference/core.md` | CORE API v3, auth, rate limits, data-quality traps |
 | `reference/unpaywall.md` | Unpaywall API, response shape, the broken search endpoint |
 | `reference/search.md` | Ranking modes, result limits, sort order, how to word a query |
@@ -934,6 +956,30 @@ so you can read just the ones you are about to use; full detail is in the matchi
   find nothing for it. Query DataCite, or use the arXiv ID directly.
 - **Their terms forbid storing and re-serving e-prints** from your own servers.
   Local copies for verification are fine; redistribution is not.
+
+### alphaXiv (and quickarxiv.org)
+
+- **quickarxiv.org is alphaXiv**, reached by a 302 that rewrites using the
+  **second** path segment — so `/abs/hep-th/9711200` becomes `/overview/hep-th`
+  and ends in a 404, and a bare `/1706.03762` drops the identifier and lands on
+  the homepage with a 200, which is the failure nothing signals. Use
+  `www.alphaxiv.org` URLs in anything scripted: the `.md` routes are not
+  redirected and handle old-style IDs correctly.
+- **The AI overview does not admit to being one.** The web UI labels it "AI
+  generated content" and alphaXiv's MCP docs call it an "AI-generated intermediate
+  report", but no file measured carries any such marker in its own text. A
+  later session reading it cannot tell it from something a person wrote — which is
+  why nothing from it may enter `verification/bib.md`.
+- **`/abs/<id>.md` destroys equations.** No math markup survives in any of the
+  nine papers measured: the Transformer's attention formula arrives as seven
+  lines, with the exponent, the radical sign and each letter of the denominator
+  stranded on separate lines. Use it for prose, the LaTeX source for anything else.
+- **Word-splitting damage tracks the PDF's fonts, not the paper's age** — a 1995
+  paper measured clean at 0.5 splits per 1000 tokens, a 2005 one at 65.0. Run the
+  check in `reference/alphaxiv.md` before quoting; over 10, the file is unusable.
+- **Both routes are arXiv-only.** A DOI, PMCID or PMID returns a JSON 404.
+- **No key, no account, no rate-limit headers**, and `robots.txt` allows both
+  routes — but responses are `no-store`, so every request costs them real work.
 
 ### Google Scholar
 

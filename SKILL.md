@@ -192,6 +192,20 @@ agy -p "your prompt" --model gemini-3.7-flash-high
 `allpapers-search` sets those three itself, so `--gemini-backend agy` needs no
 setup. Apply the same three exports to **any** other `agy` invocation you make.
 
+## Deciding whether you need the full text
+
+For an arXiv paper, `https://www.alphaxiv.org/overview/<id>.md` returns an
+AI-generated report — problem, approach, key claims, numbers — in one keyless
+request, when the abstract is too thin to tell you whether the paper is worth
+fetching. `allpapers-locate` prints a note when one exists. Available for 3 of 6
+papers sampled; where there is none the body says so plainly.
+
+**Triage only. Never quote it, never cite it, never record it.** It is
+machine-written and the file itself carries no notice saying so. It is also not a
+fallback for an unreachable paper — an abstract is the authors' words and this is
+not, so it is weaker evidence than an abstract, not stronger. See
+`reference/alphaxiv.md`.
+
 ## Getting the full text
 
 ### arXiv LaTeX source — the best format that exists
@@ -220,6 +234,19 @@ subset of source availability, never a substitute: measured over 45 papers, it
 never once succeeded where `/src/` failed. Use it when you want structure without
 unpacking a tarball; prefer the source when equations matter. See
 `reference/arxiv.md` for the measured availability table and the payload shapes.
+
+### arXiv text layer without the download
+
+`https://www.alphaxiv.org/abs/<id>.md` serves the paper's PDF text layer already
+extracted as Markdown — no tarball, no `pdftotext`, one request, no key. It
+answered for all six papers sampled including old-style identifiers, and
+`<id>v2.md` pins a version.
+
+Rank it **with** the PDF rather than above it. Equations do not survive: the
+Transformer paper's attention formula arrives as seven lines of prose with no
+math markup anywhere. Some older PDFs also come back with words split apart. The
+text is the authors' own and therefore quotable, but run the damage check in
+`reference/alphaxiv.md` first, and use the LaTeX source whenever equations matter.
 
 ### Everything else
 
@@ -408,6 +435,7 @@ the material for 1 and 3 without re-running anything.
 | `reference/paperclip.md` | paperclip CLI, its REST API, and measured defects |
 | `reference/search.md` | Ranking modes, result limits, sort order, query wording |
 | `reference/arxiv.md` | LaTeX source retrieval, payload shapes, HTML, the Atom API |
+| `reference/alphaxiv.md` | alphaXiv's keyless Markdown routes, what they cost in fidelity, why the summaries are unquotable |
 | `reference/core.md` | CORE API v3, auth, rate limits, data-quality traps |
 | `reference/unpaywall.md` | Unpaywall API, response shape, the broken search endpoint |
 | `reference/other-indices.md` | OpenAlex, Crossref, Europe PMC, Semantic Scholar, NCBI, DOAJ, OpenAIRE |
@@ -415,4 +443,5 @@ the material for 1 and 3 without re-running anything.
 | `reference/gemini.md` | Gemini grounded search: the API and `agy` backends, request shapes, citation extraction |
 | `reference/bibtex.md` | How the composite entry is merged, the per-field trust order, normalization |
 | `reference/scihub.md` | scihub-cli, its defects, and the manual fallback |
+| `reference/shadow-libraries.md` | LibGen, Anna's Archive and Z-Library, live mirror status, the traps |
 | `reference/verification.md` | `verification/bib.md` and `verification/equations.py` |

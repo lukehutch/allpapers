@@ -10,7 +10,30 @@ Two orderings operate at once. Do not confuse them.
 below. `scripts/allpapers-locate` collapses rungs 1–3 into a single concurrent
 query, so in practice you run it first and only walk the rest by hand.
 
+Neither ordering covers the AI-generated summaries described under "Before the
+ladder" immediately below. Those are not a copy of the paper in any format and
+never become one.
+
 ---
+
+## Before the ladder — the quick check
+
+The ladder finds the paper. Sometimes you do not want the paper yet: you want to
+know whether it is worth fetching, and the abstract is too thin to tell you.
+
+For an arXiv paper, `https://www.alphaxiv.org/overview/<id>.md` returns an
+AI-generated report — the problem, the approach, the key claims, the numbers —
+in one keyless request. It answered for 3 of 6 papers sampled; where there is
+none, the body says `No intermediate report available for <id>v<n>` rather than
+guessing. `allpapers-locate` prints a note when one exists.
+
+**It is triage, never evidence.** The text is machine-written, and the file
+carries no notice saying so — the disclosure exists only in alphaXiv's web UI.
+Nothing from it may be quoted, cited, paraphrased into a claim, or recorded in
+`verification/bib.md`, and it does **not** substitute for an abstract when the
+paper cannot be reached: an abstract is the authors' words, this is not. Read
+it, decide whether to fetch the paper, then verify everything against the paper.
+See `alphaxiv.md`.
 
 ## Rung 1 — paperclip
 
@@ -48,6 +71,13 @@ dir=$(scripts/arxiv-source 1706.03762)
 
 Preprints differ from the published version, sometimes materially. When the claim
 depends on the final text, say which version you read. See `arxiv.md`.
+
+**Exit 3 means the author submitted a PDF only.** Before downloading it, try
+`https://www.alphaxiv.org/abs/<id>.md`, which serves that PDF's text layer
+already extracted as Markdown. It is the authors' own words, so it is quotable,
+but rank it **with** the PDF and not above it: equations do not survive the
+extraction, and some older PDFs come back with words split apart. `alphaxiv.md`
+has the damage check to run before quoting from one.
 
 ## Rung 3 — the open indices
 
