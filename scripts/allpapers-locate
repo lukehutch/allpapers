@@ -332,45 +332,6 @@ def probe_arxiv(ids: Ids) -> list[dict]:
     return out
 
 
-def probe_alphaxiv(ids: Ids) -> list[dict]:
-    """arXiv-only, but two useful Markdown routes that need no key at all.
-
-    /abs/<id>.md is the PDF text layer served as Markdown. Measured on
-    2026-08-26 it answered for all 6 sampled papers including old-style IDs,
-    but it is ranked "pdf" on purpose: equations do not survive it. The
-    Transformer paper's attention formula comes back as seven lines with no
-    math markup anywhere. Its value is that it needs no download and no
-    pdftotext, not that it is faithful.
-
-    /overview/<id>.md is an AI-generated report, so it is reported as a
-    diagnostic note rather than a location. It is not a copy of the paper and
-    must never be quoted; see reference/alphaxiv.md.
-    """
-    if not ids.arxiv:
-        return []
-    out: list[dict] = []
-
-    text_url = f"https://www.alphaxiv.org/abs/{ids.arxiv}.md"
-    r = head(text_url)
-    if r is not None and r.ok:
-        out.append(loc("alphaXiv", "pdf", text_url,
-                       "PDF text layer, pre-extracted as Markdown — no download "
-                       "needed, but equations are lost and older PDFs come back "
-                       "with words split; check before quoting (alphaxiv.md)"))
-
-    # A GET, not a HEAD: a missing report is a 404 whose body names the version,
-    # and the body is the only place that says so.
-    o = get(f"https://www.alphaxiv.org/overview/{ids.arxiv}.md")
-    if o is not None and o.ok:
-        out.append(loc("alphaXiv", "", "",
-                       f"AI-generated summary of this paper at "
-                       f"https://www.alphaxiv.org/overview/{ids.arxiv}.md — "
-                       f"read it to decide whether to fetch the paper, never to "
-                       f"quote or cite it. It is not the authors' words.",
-                       diagnostic=True))
-    return out
-
-
 def probe_unpaywall(ids: Ids) -> list[dict]:
     if not ids.doi or not EMAIL:
         return []
@@ -601,7 +562,6 @@ def probe_paperclip(ids: Ids) -> list[dict]:
 PROBES = {
     "paperclip": probe_paperclip,
     "arXiv": probe_arxiv,
-    "alphaXiv": probe_alphaxiv,
     "Unpaywall": probe_unpaywall,
     "OpenAlex": probe_openalex,
     "CORE": probe_core,
