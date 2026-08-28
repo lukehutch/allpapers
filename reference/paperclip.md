@@ -137,6 +137,87 @@ four rankings, result limits, sort order, the narrowing filters new in 0.7.38
 (`--bool`, `--full-text`, `--has-full-text`, `--has-section`, `--exclude-*`,
 `--year-min/max`) and the stateful `--from` loop. Read it before any sweep.
 
+## Extraction quality (measured 2026-08-27)
+
+Checked `arx_1706.03762` (129 lines) and `arx_1205.7018` (1002 lines, 101
+numbered equations) line by line against the authors' arXiv LaTeX source.
+
+**The LaTeX paperclip returns is reconstructed from the built PDF, not the
+authors' source.** `\mathrm{Attention}` comes back as `\text{Attention}`; a bare
+`\frac{QK^T}{\sqrt{d_k}}` gains `\left(...\right)`; `...` becomes `\dots`;
+`\ref` and `\citep` are resolved to their printed numbers; equation numbers are
+appended as `\quad (N)`, which exist only on the rendered page; author macros
+(`\dmodel`, `\mrt`, `\eps`) arrive expanded. Content commented out in the `.tex`
+is correctly absent — a source parser has to handle comments, a reader of the
+PDF never sees them.
+
+For reading, this beats raw source in two ways: the macros are already expanded,
+and cross-references are resolved to numbers you can follow. Every equation
+checked against source was mathematically equivalent, with no invented symbols
+anywhere in the sample; in one place it emitted `\sin` where the authors had
+written a bare `sin`.
+
+**It is not verbatim, though.** A quote of a paper's own markup comes from
+`scripts/arxiv-source`, never from `content.lines`.
+
+Four fidelity defects, all measured:
+
+- **A numbered equation can vanish silently.** In `arx_1205.7018` the numbered
+  equations run 1.1 → 6.32 complete *except* 4.1, while the prose at L430 still
+  reads "Now, using formula (4.1) for `\alpha_2`, we get the expressions for the
+  jumps:" — a live reference to content that is not there. One loss in 101, with
+  no marker of any kind. Cross-check against source whenever one specific
+  equation carries the claim.
+- **HTML entities leak into the math.** `arx_1205.7018` carries 393 of them
+  (`&lt;` ×158, `&gt;` ×58, `&amp;` ×177), so an inequality arrives as
+  `0 &lt; p &lt; \infty`, and the `&` alignment characters of `align` and
+  `cases` arrive as `&amp;`. `arx_1706.03762` had 5, so it scales with math
+  density. Unescape entities before treating the output as LaTeX.
+- **Tables lose every cell boundary.** The Transformer's results tables run
+  together as prose, so a number cannot be tied back to its row and column. Read
+  tables from the source or the PDF.
+- **Footnotes are placed by page position, not logical position.** Transformer
+  footnote 4 lands inside §3.2.2 as `4To illustrate`, where it sat on the
+  printed page rather than where it is referenced.
+
+### Print-era papers are abstract-only, and nothing says so
+
+Sampled 30 PMC papers with `pub_year` between 1950 and 1995. Every one returned
+metadata and abstract, and **zero equations**. `content.lines` and `sections/`
+have exactly the same shape as a full extraction and `meta.json` is silent, so
+an agent that does not check reads an abstract and believes it read the paper.
+
+Line count is not the tell — two of the sample returned 178 and 111 lines, but
+they are conference-abstract volumes whose lines are affiliations and reference
+entries. **The tell is `sections/`:**
+
+```bash
+paperclip ls /papers/<id>/sections/   # no narrative sections -> abstract only
+```
+
+A metadata-only record lists nothing but `Title`, `Metadata`, `Authors`,
+`Affiliations`, `Abstract`, `Categories`, `Keywords`, `References` and
+`Figures`. A real extraction lists narrative sections — `Introduction`,
+`Methods`, `Results`, or the paper's own numbered tree. When there are none,
+fall through to rung 2.
+
+Little usable text is lost. Of those same 30 papers, 9 have a genuine OCR dump
+at Europe PMC's `fullTextXML` (inside a `<preformat>` element of type
+`pmc-pdf-text`) and 21 have only a stub reading "The Full Text of this article
+is available as a PDF (N KB)" plus a reference list. Where the OCR dump exists
+its equations are destroyed anyway — from PMC2225855, a sigma read as `E`,
+subscripts stranded on their own lines, and one fraction scattered over four:
+
+```
+-d2 V dE F
+=-=-E Zici (2)
+dx
+2 dx i
+```
+
+So the reference list is the real loss, not the math. For equations out of a
+print-era paper there is no text route at all: read the PDF visually.
+
 ## Measured defects (v0.7.38, checked 2026-08-25)
 
 - **Look arXiv papers up by arXiv ID.** `lookup doi 10.48550/arXiv.1706.03762`
@@ -145,15 +226,25 @@ four rankings, result limits, sort order, the narrowing filters new in 0.7.38
 - **`lookup` exits 0 even when nothing was found.** Gate on the output containing
   a document ID, never on the exit code.
 - **`lookup --json` ignores the flag** and prints the same human text.
-- **`cat` silently truncates a large file to about 1000 characters.** Measured on
-  `/papers/arx_1706.03762/content.lines`, 129 lines and 40,019 bytes: `cat`
-  returned 33 lines and 1,974 bytes, exit 0, headed
-  `[~9784 tokens total, showing first ~1000 chars]`; `head -n 500` returned all
-  130 lines and 40,019 bytes. The banner is easy to scroll past, and nothing
-  fails. Small files are not truncated — a 2.5 kB `meta.json` came back whole —
-  so the behavior is size-dependent and will not show up in a quick test.
-  **Use `head -n <big>`, `sections/`, `grep` or `scan`; never trust `cat` for a
-  whole paper.**
+- **`cat` silently truncates a large file to about 1000 characters.** Measured
+  on `/papers/arx_1706.03762/content.lines`, 129 lines and 40,019 bytes: `cat`
+  returned 33 lines and 1,974 bytes, exit 0, headed `[~9784 tokens total,
+  showing first ~1000 chars]`; `head -n 500` returned all 130 lines and 40,019
+  bytes. The banner is easy to scroll past, and nothing fails. Small files are
+  not truncated — a 2.5 kB `meta.json` came back whole — so the behavior is
+  size-dependent and will not show up in a quick test. **Use `cat --full`,
+  `head -n <big>`, `sections/`, `grep` or `scan`; never trust a bare `cat` for a
+  whole paper.** `--full` returns the whole file, but it is absent from
+  `cat --help`, which lists only `-n`. The banner then suggests two remedies and
+  **the second does not work**:
+
+  ```
+  cat --full FILE           # correct — all 129 lines, 40,011 bytes
+  cat FILE > output.txt     # what the banner advises — writes 1,967 bytes
+  ```
+
+  The file that second command produces ends with the banner's own suggestions
+  instead of the end of the paper.
 - **`SELECT COUNT(*)` returns one row per backend, not a total.** `SELECT COUNT(*)
   FROM documents` printed three rows — 502699, 3106926, 8014647 — which must be
   summed by hand. `GROUP BY source` gives the four-row breakdown and was stable

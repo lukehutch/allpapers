@@ -223,11 +223,17 @@ unpacking a tarball; prefer the source when equations matter. See
 
 ### Everything else
 
-- **paperclip** — `paperclip cat /papers/<id>/content.lines`, or better, read only
-  what you need: `paperclip grep <pattern> /papers/<id>`, `paperclip scan`,
-  `paperclip ls /papers/<id>/sections/`. Line numbers make quotes citable as
-  `#L45-L52`. Reading one section costs roughly 200 tokens against 40k for a whole
-  paper, so never `cat` a paper you can grep. See `reference/paperclip.md`.
+- **paperclip** — read only what you need: `paperclip grep`, `paperclip scan`,
+  `paperclip ls /papers/<id>/sections/`, all against `/papers/<id>`. Line
+  numbers make quotes citable as `#L45-L52`. Reading one section costs roughly
+  200 tokens against 40k for a whole paper, so never read a whole paper you can
+  grep — and when you do need all of it, **a bare `cat` truncates at ~1000
+  characters**; pass `--full`. Two things to know before quoting: its LaTeX is
+  **reconstructed from the PDF**, faithful in meaning but not verbatim, so
+  markup quotes come from arXiv source instead; and for pre-2000 papers it
+  returns **metadata and abstract only, with nothing marking it as such** —
+  `paperclip ls /papers/<id>/sections/` listing no narrative sections is the
+  tell. See `reference/paperclip.md`.
 - **Europe PMC JATS XML** — `curl` the `fullTextXML` URL. Authored structure:
   sections, equations, references. Far cleaner than the PDF of the same article.
 - **OpenAlex GROBID TEI XML** — when `allpapers-locate` lists an `OpenAlex content`

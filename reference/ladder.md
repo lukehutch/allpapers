@@ -28,7 +28,9 @@ paperclip search -s papers -n 250 "<one or two sentences describing the method>"
 under `arx_1706.03762`; the DataCite DOI arXiv mints (`10.48550/arXiv.1706.03762`)
 returns nothing.
 
-**Fall through to rung 2 when:** the paper is not indexed; the rate limit or free
+**Fall through to rung 2 when:** the paper is not indexed; the record is
+metadata-only (`paperclip ls /papers/<id>/sections/` lists no narrative sections
+— usual for pre-2000 papers, and nothing else marks it); the rate limit or free
 usage allowance is exhausted; `paperclip` is not installed and the user does not
 want to install it; or the command errors or times out. A rate-limit or quota
 message is a fall-through, not a failure to report — keep going down the ladder
