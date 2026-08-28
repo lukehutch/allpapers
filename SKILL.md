@@ -240,9 +240,15 @@ unpacking a tarball; prefer the source when equations matter. See
   row, that is a machine parse of the paper's own PDF as XML. Costs $0.01 against
   the OpenAlex budget. It does no OCR, so it is empty for scans, and its header and
   reference parsing makes mistakes — trust the body, re-check metadata elsewhere.
-- **PDF, when unavoidable** — `pdftotext -layout file.pdf -`. If that returns
-  almost nothing, the PDF is a scan with no text layer: read it visually with the
-  Read tool and re-check every quote character by character.
+- **PDF, when unavoidable** — use plain `pdftotext file.pdf -` for the body, and
+  `pdftotext -layout` only for tables and single-column papers. `-layout`
+  preserves the physical line, so on a two-column page it welds the two columns
+  together and sentences from opposite sides of the page share a line; plain
+  reads the columns in order, but scatters table rows away from their values.
+  Both splice the journal running head into the text, and paperclip beats both
+  on multi-column layout — `reference/paperclip.md` has the measurement. If
+  either returns almost nothing, the PDF is a scan with no text layer: read it
+  visually with the Read tool and re-check every quote character by character.
 
 ### When nothing free is found
 

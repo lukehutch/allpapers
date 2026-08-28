@@ -429,9 +429,14 @@ Everything else, in the order rule 1 implies:
 - **OpenAlex GROBID TEI XML** — a machine parse of the paper's own PDF. Costs $0.01
   against the OpenAlex budget, does no OCR, and its header and reference parsing
   makes mistakes: trust the body, re-check the metadata elsewhere.
-- **PDF, when unavoidable** — `pdftotext -layout file.pdf -`. If that returns
-  almost nothing, the PDF is a scan with no text layer: read it visually and
-  re-check every quote character by character.
+- **PDF, when unavoidable** — use plain `pdftotext file.pdf -` for the body, and
+  `pdftotext -layout` only for tables and single-column papers. `-layout`
+  preserves the physical line, so on a two-column page it welds the two columns
+  together and sentences from opposite sides of the page share a line; plain
+  reads the columns in order, but scatters table rows away from their values.
+  Both splice the journal running head into the text. If either returns almost
+  nothing, the PDF is a scan with no text layer: read it visually and re-check
+  every quote character by character.
 
 ### The ladder, in short
 

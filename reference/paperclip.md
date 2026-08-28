@@ -180,6 +180,30 @@ Four fidelity defects, all measured:
   footnote 4 lands inside §3.2.2 as `4To illustrate`, where it sat on the
   printed page rather than where it is referenced.
 
+### Multi-column pages come back in reading order
+
+Worth knowing because the obvious PDF fallback gets this wrong. Measured on
+`arx_1602.03837` (Phys. Rev. Lett., two columns), the same passage on page 2:
+
+| Extractor | Result |
+|---|---|
+| paperclip | `L15` carries the left column's closing paragraph whole, `L17` ends it, `L18` opens the right column. Correct order, one paragraph per line. |
+| `pdftotext -layout` | `regime and confirm predictions of general relativity for the` and `detection was made by low-latency searches for generic` land **on the same line** — two sentences from opposite sides of the page. |
+| `pdftotext`, plain | correct column order, like paperclip. |
+
+A probe for welded text — `general relativity for the detection was made` —
+matches once in the `-layout` output and never in paperclip's.
+
+paperclip also drops the page furniture: no `week ending` and no
+`PHYSICAL REVIEW LETTERS` running head anywhere in `content.lines`, where both
+`pdftotext` modes splice them into the body mid-paragraph.
+
+The tradeoff runs the other way for tables. On the Transformer's Table 2,
+`-layout` keeps `ByteNet [18]` on a line with its score of `23.75`, while plain
+`pdftotext` emits the row labels as a bare list with the numbers elsewhere. So
+for a two-column paper with tables: paperclip first, then plain `pdftotext` for
+the body and `-layout` only on the pages holding the tables.
+
 ### Print-era papers are abstract-only, and nothing says so
 
 Sampled 30 PMC papers with `pub_year` between 1950 and 1995. Every one returned
