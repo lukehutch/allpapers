@@ -12,6 +12,36 @@ query, so in practice you run it first and only walk the rest by hand.
 
 ---
 
+## Before falling through: is the rung down, or is the paper absent?
+
+A failing service and a missing paper look alike from one call, and confusing them
+writes a false "not found" into a citation record. **Every rung on this ladder can
+fail transiently, and it usually recovers within a few minutes.** Google Scholar is
+the worst offender, but CORE, OpenAlex, Europe PMC, the Sci-Hub and LibGen mirrors,
+and paperclip itself all do it.
+
+Retry, for up to 5 minutes, when you see: an HTTP 5xx, a timeout, a connection
+reset or DNS failure; an HTTP 429 or a rate-limit message (honoring `Retry-After` /
+`x-ratelimit-retry-after` if present); or **an HTTP 200 whose body is an error** —
+Scholar's `The system can't perform the operation now. Try again later.` page, or a
+mirror that answers 200 with an ad landing page.
+
+Space the attempts out — roughly 15s, 45s, 90s, 3min, 5min — and **do other work in
+between**: query the other rungs, the other identifiers, or the next paper while
+the failing one recovers. Never sit in a sleep loop.
+
+If it is still failing after 5 minutes, drop to the next rung and record the
+service as *unavailable*, not as *no result*. Say so in the final report.
+
+Do not retry an authentication failure (401/403 from a missing or wrong key — fix
+the key instead), a query the service rejects deterministically (CORE's HTTP 500 on
+a bare unqualified quoted phrase is a query-shape problem, not an outage — see
+`core.md`), or a well-formed empty result set, which is a real miss. `paperclip
+lookup` exiting 0 with no document ID is a miss too: that is simply how it reports
+absence.
+
+---
+
 ## Rung 1 — paperclip
 
 First because the full text is already extracted, sectioned and line-numbered, so
@@ -95,7 +125,10 @@ personal pages — and its `[PDF]` link points at a free copy when one exists.
 
 There is no official API. `scholar.md` has the scraping recipe, verified against a
 live page, and the paid SerpApi alternative. Scholar rate-limits aggressively and
-will serve a CAPTCHA; when that happens, stop rather than working around it.
+will serve a CAPTCHA; when that happens, stop rather than working around it — but
+its other refusal, the results-free HTTP 200, is transient far more often than not.
+Retry that one over the next five minutes, in parallel with other work, before
+concluding the rung is unavailable.
 
 ## Rung 5 — web search
 

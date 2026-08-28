@@ -135,8 +135,16 @@ it, all of which cost time here:
 UA does not clear it; it is the address that is refused.
 
 So a Scholar miss is only evidence of absence once you have checked the page is a
-real results page. When it is refusing, treat the whole rung as unavailable and
-move down the ladder — the rest of the ladder does not depend on it.
+real results page.
+
+**Treat this refusal as transient.** It is a temporary rate-limit on the calling
+address, not a permanent ban, and it typically clears within a few minutes. Retry
+the same query for up to 5 minutes — roughly at 15s, 45s, 90s, 3min and 5min — and
+do other work between attempts rather than sleeping: run the other rungs, the other
+identifiers, or the next paper, then come back. Only after that window has passed
+without a real results page should you treat the whole rung as unavailable and move
+down the ladder; the rest of the ladder does not depend on it. Either way, report it
+as "Scholar unavailable", never as "not in Scholar".
 
 ## Paid alternative: SerpApi
 

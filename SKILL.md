@@ -261,7 +261,44 @@ the bottom faster.
 **A Google Scholar miss is often not a miss.** Scholar refuses some callers with a
 full-size HTTP 200 page containing no results and no CAPTCHA. Check the page is a
 real results page before recording an absence — `reference/scholar.md` has the
-three markers that distinguish a block from an empty result set.
+three markers that distinguish a block from an empty result set. Scholar's refusals
+are usually transient: retry it over the next few minutes as described under
+**Transient failures** below rather than writing the rung off on one page.
+
+## Transient failures — retry before believing them
+
+Every service here fails intermittently, and Google Scholar most of all. A failure
+is transient until proven otherwise, and service usually comes back within a few
+minutes. **Do not record an absence, and do not fall through to the next rung, on
+a single failed call.**
+
+Treat as transient and retry:
+
+- any HTTP 5xx, a connection reset, a DNS failure or a timeout;
+- HTTP 429, and any rate-limit message — but honor `Retry-After` or
+  `x-ratelimit-retry-after` when the response carries one;
+- **a success status whose body is an error.** This is the one that gets missed.
+  Google Scholar's `The system can't perform the operation now. Try again later.`
+  arrives as a well-formed HTTP 200 page with no results and no CAPTCHA; a Sci-Hub
+  mirror answers 200 and redirects to an ad landing page. Read the body, not the
+  status line.
+
+The procedure: **retry for up to 5 minutes, spaced out — roughly at 15s, 45s, 90s,
+3min and 5min — and do other work in between.** Never block on the wait: fire off
+the other rungs, the other identifiers, or the next paper while the failing service
+recovers, then come back to it. A serial sleep loop wastes the whole five minutes.
+
+After 5 minutes of failures, treat the rung as unavailable, move down the ladder,
+and say in the final report which service was down and what it would have been
+asked — that is a "could not check", not a "not found".
+
+Three things are **not** transient, and retrying them only burns time: an
+authentication error (HTTP 401/403 from a missing or wrong key — fix the key); a
+malformed query the service rejects the same way every time (CORE's HTTP 500 on a
+bare quoted phrase is this, not an outage — field-qualify the phrase, see
+`reference/core.md`); and a well-formed empty result set from a healthy service,
+which is a real miss. `paperclip lookup` exiting 0 with no document ID is also a
+real miss, not a failure — it never signals absence any other way.
 
 ## Recording what you found
 
@@ -388,6 +425,8 @@ Finish any lookup by telling the user, explicitly:
 1. **Every source consulted, in order, with its outcome** — including the ones that
    returned nothing, and including rungs skipped because an earlier one succeeded.
    "paperclip: 3 hits" and "CORE: rate-limited, not consulted" are both findings.
+   Name any service that was still failing after the 5-minute retry window, and say
+   what it would have been asked — that is a gap in coverage, not a negative result.
 2. **Where the search stopped and why** — found what was needed, or exhausted the
    ladder. If it exhausted the ladder, say what the last resort returned.
 3. **The full composite BibTeX entry** for every paper found, as it was written to
