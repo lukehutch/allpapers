@@ -150,6 +150,54 @@ def from_arxiv(arxiv: str) -> tuple[str | None, str, str, dict]:
     return bib, "arXiv", scrub_url(r.url), extra
 
 
+def from_dblp(ids: L.Ids) -> tuple[str | None, str, str]:
+    """dblp. Returns (bibtex, "dblp", url). Silent miss outside computer science.
+
+    dblp is to CS conference proceedings what INSPIRE is to physics, and it is
+    the only index here that reliably carries a *conference* paper's booktitle,
+    editors and series. Measured on `conf/nips/VaswaniSPUJGKP17` (Attention is
+    All you Need, NIPS 2017): that paper has no Crossref record at all, because
+    the NIPS proceedings were never deposited, so without dblp the merged entry
+    has no venue beyond whatever the arXiv preprint record says.
+
+    Entered by title and first-author surname. dblp's index contains no DOIs — a
+    DOI query is tokenized into words and returns zero hits — and a title on its
+    own is not enough either: measured on "Attention Is All You Need", the title
+    matches 112 records, dblp ranks only the first 100, and the paper is in none
+    of them. Adding the surname collapses that to 2 hits with the paper first.
+    Both are required, and the returned title is still compared with the
+    requested one before the record is used, because this is a relevance search.
+    """
+    if not ids.title or not getattr(ids, "author", None):
+        return None, "", ""
+    r = L.get("https://dblp.org/search/publ/api",
+              params={"q": f"{ids.title} {ids.author}", "format": "json", "h": 30})
+    if r is None or not r.ok:
+        return None, "", ""
+    try:
+        hits = r.json()["result"]["hits"].get("hit") or []
+    except (ValueError, KeyError, TypeError, AttributeError):
+        return None, "", ""
+
+    want = L._norm_title(ids.title)
+    # The published record and the CoRR preprint of the same paper both match the
+    # title. Prefer the published one: the preprint record carries no venue.
+    matches = [h.get("info") or {} for h in hits
+               if L._norm_title((h.get("info") or {}).get("title", "")) == want]
+    matches.sort(key=lambda i: i.get("type") == "Informal and Other Publications")
+    for info in matches:
+        key = info.get("key")
+        if not key:
+            continue
+        # param=1 is the standard record: full booktitle, editors, series. param=0
+        # condenses the venue to its acronym ("booktitle = {NIPS}"), which is not
+        # a citable venue name.
+        b = get(f"https://dblp.org/rec/{key}.bib", params={"param": 1})
+        if b is not None and b.ok and b.text.lstrip().startswith("@"):
+            return b.text.strip(), "dblp", f"https://dblp.org/rec/{key}.html"
+    return None, "", ""
+
+
 def from_pubmed(pmid: str) -> tuple[str | None, str, str]:
     """For records with no DOI, which is most pre-1990s biomedical literature.
 
@@ -500,24 +548,47 @@ def field(bib: str, name: str) -> str:
     if not m:
         return ""
     rest = bib[m.end():].lstrip()
-    if rest[:1] in "{\"":
-        close = {"{": "}", '"': '"'}[rest[0]]
+    if rest[:1] == "{":
         depth, out = 0, []
         for ch in rest:
-            if ch in "{\"" and not out:
-                depth = 1
-                continue
             if ch == "{":
                 depth += 1
-            elif ch == close:
+                if depth == 1:          # the delimiter itself, not content
+                    continue
+            elif ch == "}":
                 depth -= 1
                 if depth == 0:
                     break
             out.append(ch)
         val = "".join(out)
+    elif rest[:1] == '"':
+        val = rest[1:].split('"')[0]
     else:
-        val = rest.split(",")[0]
-    return val.strip().strip("{}").strip()
+        # A bare, undelimited value: Crossref emits `month=Aug }` as the last field
+        # of an entry, so it ends at a comma, at the entry's own closing brace, or
+        # at end of line — not at a comma alone.
+        val = re.split(r"[,}\n]", rest, maxsplit=1)[0]
+
+    # INSPIRE writes title = "{Deep learning}" and some indexes write
+    # {{Deep learning}}: an outer brace pair wrapping the *whole* value is
+    # case-protection rather than content, and comes off. A brace pair that wraps
+    # only part of it is content and must stay — dblp's booktitles end in
+    # "Long Beach, CA, {USA}", and blindly stripping brace characters off the ends
+    # left that unbalanced and the emitted entry unparseable.
+    val = val.strip()
+    while len(val) >= 2 and val[0] == "{" and val[-1] == "}":
+        depth = 0
+        for i, ch in enumerate(val):
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    break
+        if i != len(val) - 1:           # the opening brace closed early
+            break
+        val = val[1:-1].strip()
+    return val.strip()
 
 
 # --------------------------------------------------------------------------
@@ -554,7 +625,12 @@ FIELD_TRUST = {
     # a .bst that wants the short form can abbreviate; going the other way needs
     # a lookup. Pass --prefer INSPIRE-HEP for the physics convention.
     "journal":      ["Crossref", "INSPIRE-HEP", "PubMed"],
-    "booktitle":    ["INSPIRE-HEP", "Crossref"],
+    # dblp is the CS proceedings authority and the only index that carries a
+    # conference paper's full booktitle, editors and series; Crossref frequently
+    # has no record of the proceedings at all.
+    "booktitle":    ["dblp", "INSPIRE-HEP", "Crossref"],
+    "editor":       ["dblp", "Crossref"],
+    "series":       ["dblp", "Crossref"],
     # The publisher deposits Crossref's author list from the article itself.
     "author":       ["Crossref", "INSPIRE-HEP", "PubMed", "arXiv", "DataCite"],
     # arXiv and DataCite report the preprint submission year, not the year of
@@ -565,18 +641,25 @@ FIELD_TRUST = {
     "url":          ["Crossref", "arXiv", "DataCite"],
 }
 FALLBACK_TRUST = ["Crossref", "INSPIRE-HEP", "PubMed", "arXiv", "DataCite",
-                  "Scholar"]
+                  "dblp", "Scholar"]
 
 # Not wanted in a citation entry, and actively noisy when they arrive. DataCite
 # returns arXiv's whole distribution license as `copyright` and repeats subject
 # terms in `keywords` ("FOS: Physical sciences, FOS: Physical sciences").
+# dblp appends its own bookkeeping to every record: `bibsource` naming itself,
+# `biburl` pointing back at the .bib, and `timestamp` for when it last touched the
+# record. None of it belongs in a citation, and the dblp URL is already recorded
+# in the provenance comments and in verification/bib.md.
 DROP_FIELDS = {"copyright", "abstract", "language", "keywords", "urldate",
-               "collection", "note"}
+               "collection", "note", "bibsource", "biburl", "timestamp"}
 
 # The cite key comes from whichever entry we trust most overall, because a key
 # is an identifier other people may already be using — INSPIRE's Author:YYYYxx
 # keys in particular are the shared currency of the physics literature.
-KEY_TRUST = ["INSPIRE-HEP", "Crossref", "PubMed", "arXiv", "DataCite"]
+# dblp last: its DBLP:conf/nips/VaswaniSPUJGKP17 keys are the shared currency of
+# the CS literature the way INSPIRE's are for physics, but a registration index
+# that has the paper is still the better authority for the entry type.
+KEY_TRUST = ["INSPIRE-HEP", "Crossref", "PubMed", "arXiv", "DataCite", "dblp"]
 
 # Scholar is appended to every field order rather than listed in any of them:
 # it fills a hole no registration index could fill, and never outranks one.
@@ -692,13 +775,29 @@ def gather(ids: L.Ids) -> tuple[dict, dict, dict]:
         if b:
             entries[ag], urls[ag] = b, url
 
-    # Scholar is searched by title, so it needs one. When the input was an
-    # identifier, borrow the title the registration indexes just returned.
+    # Scholar is searched by title, so it needs one, and dblp needs a title and a
+    # first-author surname. When the input was an identifier, borrow both from
+    # whatever the registration indexes just returned.
     if not ids.title and entries:
         for src in KEY_TRUST:
             if src in entries and field(entries[src], "title"):
                 ids.title = field(entries[src], "title")
                 break
+    if not getattr(ids, "author", None) and entries:
+        for src in KEY_TRUST:
+            if src in entries and field(entries[src], "author"):
+                first = field(entries[src], "author").split(" and ")[0].strip()
+                # BibTeX writes either "Vaswani, Ashish" or "Ashish Vaswani";
+                # the comma form puts the surname first, so it cannot go through
+                # the same last-token rule.
+                ids.author = (first.split(",")[0].strip() if "," in first
+                              else L.surname(first))
+                break
+    # dblp, like Scholar, is entered by title, so it goes after the block above.
+    b, ag, url = from_dblp(ids)
+    if b:
+        entries[ag], urls[ag] = b, url
+
     b, ag, note, url = from_scholar(ids)
     if b:
         entries[ag], urls[ag] = b, url
@@ -812,7 +911,8 @@ def main() -> int:
                     help="take the single best index instead of merging")
     ap.add_argument("--prefer", metavar="INDEX",
                     help="promote one index above the trust order "
-                         "(INSPIRE-HEP, Crossref, PubMed, arXiv, DataCite, Scholar)")
+                         "(INSPIRE-HEP, Crossref, PubMed, arXiv, DataCite, dblp, "
+                         "Scholar)")
     ap.add_argument("--raw", action="store_true",
                     help="print each index's BibTeX unmodified, without merging")
     ap.add_argument("--json", action="store_true")

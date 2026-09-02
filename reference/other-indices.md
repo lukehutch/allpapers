@@ -75,6 +75,29 @@ missing or duplicated references. Treat the TEI as a good parse, not a
 publisher-authored one, and check anything a quote hangs on. The cached PDFs keep
 their original copyright — OpenAlex grants no extra rights.
 
+**Its DOI for a work can be the wrong DOI.** OpenAlex records one canonical DOI per
+work, and if a second party registers the same paper afresh, that duplicate can
+become the one OpenAlex reports — quietly replacing the publication's own identity.
+
+Measured 2026-09-02, still live at the time of writing: `W2626778328` is Vaswani et
+al., "Attention Is All You Need", 7,075 citations, unmistakably the 2017
+Transformer paper. OpenAlex gives its DOI as `10.65215/2q58a426`,
+`publication_year` 2025, and no primary location at all. That DOI is registered at
+Crossref, so it resolves and content-negotiates cleanly, to:
+
+```
+@article{Vaswani_2025, title={Attention Is All You Need}, … publisher={Shenzhen
+Medical Academy of Research and Translation}, year={2025}, month=Aug }
+```
+
+Nothing here errors. Every service answers 200 with well-formed data, and a
+bibliography built from it cites a 2025 record from an unrelated publisher for a
+2017 NIPS paper. The defenses are the ones already in place: `allpapers-bibtex`
+prints a `% disagreement — year: took Crossref='2025' over INSPIRE-HEP='2017'`
+line, and those lines exist to be read. For a CS paper, dblp is the corrective —
+it holds the NIPS 2017 record with the right year, booktitle and editors, and it
+never had the bad DOI because it indexes no DOIs at all.
+
 **It is metered.** This is the change most likely to surprise: OpenAlex now bills
 API use in dollars. Every response carries the running total:
 
@@ -117,7 +140,8 @@ copies.
 10` with `x-rate-limit-interval: 1s` — ten requests a second. Putting your address
 in a `mailto=` parameter or in the `User-Agent` lands you in the polite pool, which
 the response confirms with `x-api-pool: polite-single`; without it the same header
-reads `public`. A paid Metadata Plus tier exists and was not measured.
+reads `public`. Use the `mailto=` parameter: the User-Agent is a Chrome string
+here (`SKILL.md`), so the parameter is what keeps us in the polite pool. A paid Metadata Plus tier exists and was not measured.
 
 **Crossref lower-cases the DOI in its response.** The registered casing has to be
 recovered from the entry's own `url` field — `10.1103/PhysRevD.59.043516`, not the

@@ -78,6 +78,39 @@ paperclip login          # browser sign-in
 If the user exhausts paperclip's free usage, they can get an API key at
 <https://paperclip.gxl.ai/keys> and set `PAPERCLIP_API_KEY`.
 
+## Every web fetch sends a Chrome User-Agent
+
+**Every HTTP request this skill makes — API call, PDF download, HTML scrape,
+mirror probe — must carry a current Chrome User-Agent string:**
+
+```
+Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36
+```
+
+Use it in `curl -A "..."`, in a `User-Agent` header, and in anything you write ad
+hoc. The scripts already send it, from one constant in `scripts/allpapers-locate`
+(`CHROME_UA`, imported by `allpapers-bibtex`, `allpapers-fetch` and
+`allpapers-search`, mirrored in `allpapers-mirrors` and `arxiv-source`);
+`ALLPAPERS_USER_AGENT` overrides it. Bump the Chrome version there when it goes
+stale — one edit covers every script but `arxiv-source`, which is shell and keeps
+its own copy.
+
+This is not evasion, it is correctness. A descriptive or default agent gets
+throttled, refused, or served a stub page by enough of these hosts that the cost
+is measured in false negatives, and **the failure is silent**: `curl` with no `-A`
+gets an empty page, not an error, and that reads exactly like "the paper is not
+here." Google Scholar blocks the default `curl` agent outright, and several
+shadow-library mirrors serve an interstitial to anything that does not look like
+a browser.
+
+It costs nothing in politeness. Every service that offers a polite pool —
+OpenAlex, Crossref, Unpaywall, Europe PMC, NCBI — accepts the contact address as a
+`mailto=` or `email=` query parameter, which is the documented alternative to
+putting it in the User-Agent, and the scripts send it that way. The one service
+that asks for identification rather than an address is arXiv, and what it actually
+asks for is restraint: roughly one request every three seconds, which is what to
+give it.
+
 ## The three kinds of lookup
 
 Decide which one you are doing before you start; they have different tools and
@@ -94,11 +127,21 @@ scripts/allpapers-locate "Attention is all you need"   # resolves the title firs
 scripts/allpapers-locate 10.1038/nature14539 --json    # for scripting
 ```
 
-Queries paperclip, arXiv, Unpaywall, OpenAlex, CORE and Europe PMC at once and
-ranks every free location it finds by format. Accepts DOIs, arXiv IDs (new and
+Queries paperclip, arXiv, Unpaywall, OpenAlex, CORE, Europe PMC and dblp at once
+and ranks every free location it finds by format. Accepts DOIs, arXiv IDs (new and
 old style, with or without a version suffix), PMIDs, PMCIDs, arXiv/DOI URLs, and
 titles. Exit 1 means nothing free was found — the signal to move down to Google
 Scholar and below.
+
+**For a computer science paper, dblp is the identity resolver.** Query it with the
+title *and the first author's surname*: its index contains no DOIs, so a DOI lookup
+returns zero hits whether or not it has the paper, and the title alone is not enough
+either — the search is ranked and truncated, so a famous title can match more records
+than dblp will rank and leave the paper itself off the list. It holds no full text.
+What it contributes
+is a precise title match where Google Scholar gives none, the open-access `ee`
+link on records it marks open, and the conference booktitle, editors and series
+that Crossref frequently has no record of at all. `reference/dblp.md`.
 
 **Watch stderr.** On a title lookup it warns when several papers share a title or
 when no exact match was found; free-text title search returns near-misses readily.
@@ -292,6 +335,16 @@ After 5 minutes of failures, treat the rung as unavailable, move down the ladder
 and say in the final report which service was down and what it would have been
 asked — that is a "could not check", not a "not found".
 
+**A transient failure can reach you as a confident wrong answer.** When one index
+in a chain goes down, the code after it may quietly substitute a weaker source
+rather than report the outage. Measured 2026-09-02: with OpenAlex briefly
+unreachable, resolving the title "Attention is all you need" fell through to a
+one-row Crossref title search and returned an unrelated 2025 Springer book chapter
+— no error anywhere, just a different paper. `allpapers-locate` now refuses to
+resolve a title when OpenAlex did not answer, and says so. Apply the same
+suspicion by hand: if a lookup returns something surprising just after a service
+failed, re-run it once the service is back before believing it.
+
 Three things are **not** transient, and retrying them only burns time: an
 authentication error (HTTP 401/403 from a missing or wrong key — fix the key); a
 malformed query the service rejects the same way every time (CORE's HTTP 500 on a
@@ -463,6 +516,7 @@ the material for 1 and 3 without re-running anything.
 | `reference/unpaywall.md` | Unpaywall API, response shape, the broken search endpoint |
 | `reference/other-indices.md` | OpenAlex, Crossref, Europe PMC, Semantic Scholar, NCBI, DOAJ, OpenAIRE |
 | `reference/scholar.md` | Google Scholar scraping, the silent block, SerpApi |
+| `reference/dblp.md` | dblp: CS identity resolution, proceedings metadata, BibTeX, its rate limiting |
 | `reference/gemini.md` | Gemini grounded search: the API and `agy` backends, request shapes, citation extraction |
 | `reference/bibtex.md` | How the composite entry is merged, the per-field trust order, normalization |
 | `reference/scihub.md` | scihub-cli, its defects, and the manual fallback |

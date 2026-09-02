@@ -93,11 +93,23 @@ concurrently.
 | OpenAlex | same data plus identifiers, citations, and non-DOI works | `other-indices.md` |
 | CORE | repository deposits, sometimes with extracted full text | `core.md` |
 | Europe PMC | JATS XML for anything with a PMCID — very parseable | `other-indices.md` |
+| dblp | computer science: identity, proceedings metadata, open-access `ee` links | `dblp.md` |
 
 Two traps, both measured: CORE will hand you a record that carries the requested
 DOI but is a different paper, so check the title; and without an API key CORE puts
 `"Not available for public API users."` in the `fullText` field rather than
 leaving it empty.
+
+**dblp is on this rung for computer science only**, and it behaves unlike the rest
+of it. It holds no full text and no abstracts, it must be entered by title *and*
+first-author surname because its index contains no DOIs and a title alone can be
+out-ranked off the result list, and outside CS it is a silent miss — so an empty dblp
+result is "not applicable", never a finding. In exchange it does two things nothing
+else on the ladder does: it resolves a CS paper's identity precisely, where Scholar
+at rung 4 does not, and it carries the booktitle, editors and series of conference
+proceedings that Crossref often has no record of. It also rate-limits hard and
+silently, answering with a `dblp: error 500` HTML page after about a dozen quick
+requests, so query it a couple of times per paper and no more. `dblp.md`.
 
 **OpenAlex now hosts full text of its own**, which makes this rung better than it
 used to be. A work object carries `has_content` and `content_urls`, and where
@@ -119,8 +131,10 @@ stores it and `allpapers-locate` uses it.
 
 ## Rung 4 — Google Scholar
 
-Only once rungs 1–3 have come up empty. Scholar indexes material the open indices
-miss — theses, technical reports, old scanned journal runs, author copies on
+Only once rungs 1–3 have come up empty. For a computer science paper, try dblp on
+rung 3 first and expect it to win: measured on the same title, dblp returned the
+right paper at rank 1 of 2 hits where Scholar did not have it in the top 3 of
+122,000. Scholar indexes material the open indices miss — theses, technical reports, old scanned journal runs, author copies on
 personal pages — and its `[PDF]` link points at a free copy when one exists.
 
 There is no official API. `scholar.md` has the scraping recipe, verified against a

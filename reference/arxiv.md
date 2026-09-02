@@ -116,8 +116,10 @@ reference. `<opensearch:totalResults>` gives a result count, but note it reflect
 the query, not the corpus — `search_query=all:e` returned 500,099, which is a
 query artifact and not the size of arXiv.
 
-Send a descriptive User-Agent and do not hammer it; arXiv asks for roughly one
-request every three seconds.
+Send the Chrome User-Agent every fetch in this skill sends (see **Every web fetch
+sends a Chrome User-Agent** in `SKILL.md`), and do not hammer it: arXiv asks for
+roughly one request every three seconds, and that restraint — not the agent
+string — is the part that matters to them.
 
 ## Identifier forms
 

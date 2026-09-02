@@ -34,7 +34,9 @@ Every disagreement is reported on stderr:
 ```
 
 Read them. They are the cheapest way to catch an entry that is subtly the wrong
-paper.
+paper — and sometimes the only way: see the OpenAlex wrong-DOI case in
+`other-indices.md`, where every index answers 200 with well-formed data and the
+merged entry still dates a 2017 paper to 2025.
 
 ## Where each index answers
 
@@ -45,6 +47,7 @@ paper.
 | DataCite | the same URL — `doi.org` routes by registrant | 10.48550 (arXiv), Zenodo, Dryad |
 | arXiv | `https://export.arxiv.org/api/query?id_list={id}` | preprints, plus the published DOI and `journal_ref` when the author set them |
 | PubMed | `eutils…/efetch.fcgi?db=pubmed&id={pmid}&retmode=xml` | biomedical records, including the many with no DOI |
+| dblp | `https://dblp.org/search/publ/api?q={title}+{surname}`, then `https://dblp.org/rec/{key}.bib?param=1` | computer science: conference proceedings, their editors and series |
 | Scholar | `https://scholar.google.com/scholar?as_epq={title}&as_occt=title` | venue strings for grey literature; last resort |
 
 `doi.org` content negotiation returns the registration agency's own BibTeX, so
@@ -71,7 +74,8 @@ single run; `--single` skips merging entirely.
 | `eprint`, `archiveprefix`, `primaryclass` | arXiv, INSPIRE | arXiv is the registry of its own identifiers |
 | `title` | INSPIRE, Crossref, PubMed, arXiv, DataCite | INSPIRE preserves LaTeX maths (`The Large $N$ limit`); the others flatten it to `The Large N Limit` |
 | `journal` | Crossref, INSPIRE, PubMed | Crossref gives the full title, INSPIRE the physics abbreviation. Full is less ambiguous, and a `.bst` that wants the short form can abbreviate; going the other way needs a lookup. `--prefer INSPIRE-HEP` for the physics house style |
-| `booktitle` | INSPIRE, Crossref | |
+| `booktitle` | dblp, INSPIRE, Crossref | dblp carries the full proceedings title for a CS conference; Crossref often has no record of the volume at all |
+| `editor`, `series` | dblp, Crossref | measured on `1706.03762`: dblp supplies all seven NIPS 30 editors, Crossref none |
 | `author` | Crossref, INSPIRE, PubMed, arXiv, DataCite | the publisher deposits Crossref's list from the article itself |
 | `year` | Crossref, INSPIRE, PubMed, arXiv, DataCite | arXiv and DataCite report the *submission* year. Measured on hep-th/9711200: 1997 against a 1998 journal date |
 | `pmid` | PubMed | |
@@ -92,9 +96,16 @@ because its `Author:YYYYxx` keys are the shared currency of the physics
 literature and someone else may already be citing the paper by that key.
 
 Fields dropped on sight: `copyright`, `abstract`, `language`, `keywords`,
-`urldate`, `collection`, `note`. DataCite returns arXiv's entire distribution
-license as `copyright`, and repeats subject terms in `keywords`
-(`FOS: Physical sciences, FOS: Physical sciences`).
+`urldate`, `collection`, `note`, `bibsource`, `biburl`, `timestamp`. DataCite
+returns arXiv's entire distribution license as `copyright`, and repeats subject
+terms in `keywords` (`FOS: Physical sciences, FOS: Physical sciences`); the last
+three are dblp's own bookkeeping, which says when dblp last touched the record and
+nothing about the paper.
+
+**dblp is queried by title *and* first-author surname, or not at all.** A title
+alone can be out-ranked off dblp's own result list — see `dblp.md`. When no index
+has yet supplied an author, `gather()` borrows the first surname from whichever
+entry it already holds; when none does, dblp is skipped rather than guessed at.
 
 ## Normalizations applied
 

@@ -57,7 +57,16 @@ CFG = load_config()
 EMAIL = CFG.get("email", "")
 OPENALEX_KEY = CFG.get("openalex_api_key", "")
 NCBI_KEY = CFG.get("ncbi_api_key", "")
-UA = f"allpapers/1.0 (mailto:{EMAIL})" if EMAIL else "allpapers/1.0"
+# Always identify as Chrome. A non-browser User-Agent is refused, throttled or
+# served a stub by enough of these hosts that a descriptive agent costs real
+# results, and the failure is silent — an empty page rather than an error. This
+# does not cost us the polite pools: OpenAlex, Crossref, Unpaywall, Europe PMC
+# and NCBI are all sent the address in a `mailto=` or `email=` query parameter
+# below, which is the documented alternative to putting it in the User-Agent.
+# Bump the Chrome version when it goes stale; ALLPAPERS_USER_AGENT overrides it.
+CHROME_UA = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+             "(KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36")
+UA = os.getenv("ALLPAPERS_USER_AGENT") or CHROME_UA
 HEADERS = {"User-Agent": UA}
 
 DOI_RE = re.compile(r"\b(10\.\d{4,9}/[^\s\"'<>]+)", re.I)
@@ -74,6 +83,9 @@ PMID_RE = re.compile(r"^\d{6,8}$")
 class Ids:
     def __init__(self) -> None:
         self.doi = self.arxiv = self.pmcid = self.pmid = self.title = None
+        # First author's surname. Not an identifier, but dblp cannot find a paper
+        # from its title alone (see probe_dblp) and this is what rescues it.
+        self.author = None
 
     def __repr__(self) -> str:
         return json.dumps({k: v for k, v in self.__dict__.items() if v}, indent=2)
@@ -130,6 +142,13 @@ def head(url: str, **kw) -> requests.Response | None:
 # identifier resolution
 # --------------------------------------------------------------------------
 
+def surname(display_name: str | None) -> str | None:
+    """Last whitespace-separated token of a display name. Good enough for a
+    search term: dblp prefix-matches, so a compound surname still hits."""
+    parts = (display_name or "").split()
+    return parts[-1] if parts else None
+
+
 def resolve_title(ids: Ids) -> Ids:
     """Turn a title into a DOI.
 
@@ -143,17 +162,22 @@ def resolve_title(ids: Ids) -> Ids:
     want = _norm_title(ids.title)
     r = get("https://api.openalex.org/works",
             params={"search": ids.title, "per-page": 25, "mailto": EMAIL or None,
-                    "select": "id,doi,title,cited_by_count,publication_year"})
+                    "select": "id,doi,title,cited_by_count,publication_year,"
+                              "authorships"})
+    openalex_answered = r is not None and r.ok
     candidates = []
-    if r is not None and r.ok:
+    if openalex_answered:
         for w in r.json().get("results") or []:
             if not w.get("doi"):
                 continue
+            auth = w.get("authorships") or []
             candidates.append({
                 "doi": w["doi"].replace("https://doi.org/", ""),
                 "title": w.get("title") or "",
                 "cites": w.get("cited_by_count") or 0,
                 "year": w.get("publication_year"),
+                "author": surname((auth[0].get("author") or {}).get("display_name")
+                                  if auth else None),
             })
 
     exact = [c for c in candidates if _norm_title(c["title"]) == want]
@@ -167,6 +191,7 @@ def resolve_title(ids: Ids) -> Ids:
                   f"Others: " + "; ".join(f"{c['doi']} ({c['cites']:,} cites, {c['year']})"
                                           for c in others), file=sys.stderr)
         ids.doi, ids.title = best["doi"], best["title"]
+        ids.author = ids.author or best["author"]
         return ids
 
     if candidates:
@@ -174,6 +199,20 @@ def resolve_title(ids: Ids) -> Ids:
         print(f"note: no exact title match; best guess is {best['doi']!r} "
               f"({best['title']!r}). Confirm before citing it.", file=sys.stderr)
         ids.doi, ids.title = best["doi"], best["title"]
+        ids.author = ids.author or best["author"]
+        return ids
+
+    if not openalex_answered:
+        # OpenAlex is the only index consulted above, so an outage leaves
+        # `candidates` empty and is indistinguishable from "no such paper" unless
+        # it is checked for. Falling through to a one-row Crossref title search
+        # here resolves the title to whatever Crossref ranks first — measured
+        # 2026-09-02, "Attention is all you need" during an OpenAlex blip
+        # resolved to an unrelated 2025 Springer book chapter. A transient
+        # failure must not turn into a different paper.
+        print("note: OpenAlex did not answer, so this title was not resolved. "
+              "Retry in a few minutes; see the transient-failures section of "
+              "SKILL.md.", file=sys.stderr)
         return ids
 
     r = get("https://api.crossref.org/works",
@@ -183,8 +222,10 @@ def resolve_title(ids: Ids) -> Ids:
         items = r.json().get("message", {}).get("items", [])
         if items:
             ids.doi = items[0].get("DOI")
-            print(f"note: fell back to Crossref title search; got {ids.doi!r}. "
-                  f"Confirm before citing it.", file=sys.stderr)
+            print(f"note: OpenAlex has no record of this title; fell back to a "
+                  f"Crossref title search and got {ids.doi!r}. This is a "
+                  f"relevance hit, not a match — confirm before citing it.",
+                  file=sys.stderr)
     return ids
 
 
@@ -252,6 +293,9 @@ def resolve(ids: Ids) -> Ids:
                             break
             if not ids.title:
                 ids.title = w.get("title")
+            if not ids.author and (w.get("authorships") or []):
+                ids.author = surname(
+                    (w["authorships"][0].get("author") or {}).get("display_name"))
 
     # OpenAlex normally carries the PMID (measured: it had one for all three
     # PubMed-indexed DOIs in a five-DOI spread), so this is a backstop rather
@@ -559,6 +603,57 @@ def probe_paperclip(ids: Ids) -> list[dict]:
     return []
 
 
+def probe_dblp(ids: Ids) -> list[dict]:
+    """dblp, for computer science. Title-only, and the title must be checked.
+
+    dblp's search index does not contain DOIs: a DOI query is tokenized into
+    words ("10.1038/nature14539" becomes `10 1038* nature14539*`) and returns
+    zero hits, measured 2026-09-02. So the title is the only way in, and since a
+    title query is a relevance search the title that comes back has to be
+    compared with the one asked for before anything is believed.
+
+    A title alone is not enough, which is the thing to know about this endpoint.
+    Measured 2026-09-02 on "Attention Is All You Need": the query matches 112
+    records, dblp ranks only the first 100, and the paper itself is in none of
+    them — its own exact title does not retrieve it. Adding the first author's
+    surname collapses the same search to 2 hits with the paper at rank 1. So the
+    surname is not a refinement here, it is the difference between finding the
+    paper and silently missing it, and without one this probe does not run.
+
+    dblp holds no full text. What it contributes is the `ee` link on records it
+    marks `access: open` — usually the publisher's or the proceedings site's own
+    free copy, and for a conference paper with no DOI that is often the only
+    location any index knows.
+    """
+    if not ids.title or not ids.author:
+        return []
+    r = get("https://dblp.org/search/publ/api",
+            params={"q": f"{ids.title} {ids.author}", "format": "json", "h": 30})
+    if r is None or not r.ok:
+        return []
+    try:
+        hits = r.json()["result"]["hits"].get("hit") or []
+    except (ValueError, KeyError, TypeError, AttributeError):
+        # dblp answers a malformed or throttled request with an HTML error page
+        # under a 500, so a parse failure here is a service problem, not a miss.
+        return []
+
+    want = _norm_title(ids.title)
+    out = []
+    for h in hits:
+        info = h.get("info") or {}
+        # dblp stores the title with a trailing period; _norm_title drops it.
+        if _norm_title(info.get("title", "")) != want:
+            continue
+        ee, access = info.get("ee"), info.get("access")
+        if not ee or access != "open":
+            continue
+        venue, year = info.get("venue", ""), info.get("year", "")
+        out.append(loc("dblp", "html", ee,
+                       f"{venue} {year}".strip() + ", dblp marks it open access"))
+    return out
+
+
 PROBES = {
     "paperclip": probe_paperclip,
     "arXiv": probe_arxiv,
@@ -566,6 +661,7 @@ PROBES = {
     "OpenAlex": probe_openalex,
     "CORE": probe_core,
     "Europe PMC": probe_europepmc,
+    "dblp": probe_dblp,
 }
 
 

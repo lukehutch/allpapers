@@ -48,8 +48,8 @@ fields nothing else carries.
 
 ## URL patterns
 
-Base is `https://scholar.google.com`. Send a browser `User-Agent`; the default
-`curl` agent gets blocked.
+Base is `https://scholar.google.com`. Send the Chrome `User-Agent` from
+`SKILL.md`; the default `curl` agent gets blocked outright.
 
 ```
 /scholar?hl=en&q={query}                     publication search
@@ -83,7 +83,7 @@ its title is `<h3 class="gs_rt">`, and the version-cluster id appears as
 `cluster={id}` in the "All versions" link.
 
 ```bash
-curl -sS -A "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/126.0 Safari/537.36" \
+curl -sS -A "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36" \
   "https://scholar.google.com/scholar?hl=en&as_epq=$(python3 -c 'import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1]))' "$TITLE")&as_occt=title" \
   -o scholar.html
 ```

@@ -114,8 +114,9 @@ working names — trying more domains after one fails buys you very little.
 
 Manual PDF fallback, already recorded in `scihub.md` and still working: the
 mirror article pages embed the file at
-`https://sci.bban.top/pdf/<DOI>.pdf` — fetch that URL directly with a browser
-User-Agent.
+`https://sci.bban.top/pdf/<DOI>.pdf` — fetch that URL directly with the Chrome
+User-Agent (`SKILL.md`). These mirrors serve an interstitial or a stub to anything
+that does not look like a browser, so the agent string is load-bearing here.
 
 **Keys / registration:** none. **Rate limits:** none published; the sites are
 unreliable rather than rate-limited. **Paid tier:** none — but see `sci-net.xyz`

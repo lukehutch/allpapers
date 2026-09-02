@@ -33,8 +33,9 @@ import requests
 # A browser User-Agent is not evasion here, it is correctness: several of these
 # hosts serve a stub or an interstitial to anything that does not look like a
 # browser, which would make every result a false negative.
-UA = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-      "(KHTML, like Gecko) Chrome/126.0 Safari/537.36")
+UA = os.getenv("ALLPAPERS_USER_AGENT") or (
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36")
 TIMEOUT = int(os.getenv("ALLPAPERS_MIRROR_TIMEOUT", "25"))
 
 UP, PROTECTED, DEGRADED, DOWN = "UP", "PROTECTED", "DEGRADED", "DOWN"

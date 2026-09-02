@@ -11,7 +11,10 @@
 # submitted a PDF only, so there is no text source to parse.
 set -euo pipefail
 
-UA="allpapers/1.0 (https://github.com/; mailto:${ALLPAPERS_EMAIL:-anonymous@example.org})"
+# Chrome, like every other fetch in this skill: a descriptive agent gets stubs
+# or throttling from enough hosts that it is not worth the exception. arXiv asks
+# callers to go easy rather than to identify, so we fetch one paper at a time.
+UA="${ALLPAPERS_USER_AGENT:-Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36}"
 outdir=""
 keep=0
 

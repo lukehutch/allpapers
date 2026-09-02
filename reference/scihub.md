@@ -156,7 +156,8 @@ When the CLI cannot get there, the mirror article page embeds the PDF at
 https://sci.bban.top/pdf/<DOI>.pdf
 ```
 
-Fetch that directly with a browser `User-Agent`.
+Fetch that directly with the Chrome `User-Agent` — see `SKILL.md`. Without it
+the mirror answers with a stub rather than the PDF.
 
 ### Old scans have no text layer
 

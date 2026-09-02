@@ -337,7 +337,8 @@ def run_gemini(query: str, key: str, timeout: int) -> dict:
         try:
             r = L.requests.post(
                 url, timeout=timeout, json=body,
-                headers={"Content-Type": "application/json", "x-goog-api-key": key})
+                headers={"Content-Type": "application/json", "x-goog-api-key": key,
+                         "User-Agent": L.UA})
         except L.requests.RequestException as e:
             errors.append(f"{label}: {e}")
             continue
