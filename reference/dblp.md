@@ -191,6 +191,10 @@ There are no `x-ratelimit-*` headers on any response.
   here: an empty-query probe returned a 500 mid-throttle and looked like a
   meaningful result until it was re-run cleanly and came back 200 with zero hits.
 - **Connection timeouts with no response at all**, once throttling is established.
+  Both scripts treat this as a failure rather than a miss: `allpapers-locate`
+  raises, so the run prints `warning: dblp probe failed: …`, and
+  `allpapers-bibtex` emits `warning: dblp could not be checked: …`. A silent
+  empty result from either means dblp really had nothing.
 - **`HEAD` returns HTTP 500 on every endpoint**, including ones that answer `GET`
   with a clean 200. Never probe dblp with a HEAD request.
 
@@ -198,6 +202,68 @@ So: **go slowly** — a couple of requests per paper, not a dozen — and treat 
 or a timeout as transient, retrying on the schedule in `ladder.md` rather than
 recording an absence. Responses are cached (`cache-control: max-age=28800`), so
 repeating an identical query is cheap.
+
+## The rate limit, as dblp states it
+
+From dblp's own FAQ, *Am I allowed to crawl the dblp website?*
+(`https://dblp.org/faq/1474706.html`), read 2026-09-02:
+
+- Crawling is **allowed**, and the query API is documented for exactly this use.
+- Exceeding the limit returns **an empty document with HTTP 429 Too Many
+  Requests**, carrying a **`Retry-After` header giving the seconds to wait**.
+  Honor that number; do not substitute your own backoff.
+- The stated pacing is "a reasonable number of requests per minute", and
+  "you should always be fine when waiting for at least one or two second between
+  two consecutive requests".
+- `robots.txt` sets **`Crawl-delay: 4`**. Where the two disagree, take the
+  slower: **one request every 4 seconds is the pacing floor.**
+- **For bulk work, do not use the API at all.** dblp asks that you download the
+  complete XML dump and query it locally; it is kept in sync with the site.
+
+There is no published request-per-hour number and no `x-ratelimit-*` header to
+read one from, so the threshold cannot be pinned down without deliberately
+provoking a block — which is what the policy asks us not to do. It has not been
+measured here, and should not be.
+
+**What was observed does not match the documented 429.** Throttling in this
+session arrived as `dblp: error 500` HTML pages and then connection timeouts
+after roughly a dozen rapid requests, recovering in about three and a half
+minutes — never as a 429, and never with a `Retry-After`. Treat the documented
+429 as the case to handle correctly and the undocumented 500-then-timeout as the
+one you will actually see. Both are transient.
+
+Context for that, from the same page on the same day: dblp was carrying a banner
+reading "significant server instability across all dblp servers … there may still
+be extended downtime on all dblp servers in the coming days". Some of those 500s
+were the servers, not us. That cuts both ways — it means a 500 is even less
+informative than usual, and it means the "never read a 500 as a result" rule is
+doing real work.
+
+**`robots.txt` disallows the endpoints this skill uses** — `/search/publ`,
+`/rec/bib`, and by extension `/*.bib` and `/*.json` — while the FAQ sanctions
+programmatic API use with pacing. The two documents genuinely conflict. The
+reading taken here: those `Disallow` rules exist to keep indexing crawlers out of
+the site's infinite format variants, not to forbid a person looking up a paper,
+and the FAQ is the more specific statement about the API. That is only defensible
+at the volume this skill actually uses — **two requests per paper, driven by a
+person asking about that paper**. It stops being defensible the moment anything
+here starts iterating over a list, and at that point the XML dump is both the
+polite answer and the fast one.
+
+## Two mirrors, when dblp.org is down
+
+The same API is served from both:
+
+```
+https://dblp.uni-trier.de/search/publ/api?…
+https://dblp.dagstuhl.de/search/publ/api?…
+```
+
+Measured 2026-09-02: identical results to `dblp.org` for the same query, HTTP 200
+in 0.84 s and 1.24 s. dblp's own maintenance banner directs users to the Trier
+server, so switching hosts is sanctioned rather than an evasion. A mirror is
+worth trying when `dblp.org` is down — but it is a *different server, not a
+different rate limit*, so it is not a way to keep querying through a throttle.
 
 ## What dblp will not give you
 

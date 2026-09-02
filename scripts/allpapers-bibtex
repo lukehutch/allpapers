@@ -151,7 +151,12 @@ def from_arxiv(arxiv: str) -> tuple[str | None, str, str, dict]:
 
 
 def from_dblp(ids: L.Ids) -> tuple[str | None, str, str]:
-    """dblp. Returns (bibtex, "dblp", url). Silent miss outside computer science.
+    """dblp. Returns (bibtex, "dblp", url-or-failure-note).
+
+    On success the third slot is the record URL. On a service failure it is a
+    note saying dblp could not be checked; on a genuine miss it is empty. The
+    caller must keep those apart — see reference/dblp.md on why a dblp 500 never
+    means "no results". Silent miss outside computer science.
 
     dblp is to CS conference proceedings what INSPIRE is to physics, and it is
     the only index here that reliably carries a *conference* paper's booktitle,
@@ -172,12 +177,19 @@ def from_dblp(ids: L.Ids) -> tuple[str | None, str, str]:
         return None, "", ""
     r = L.get("https://dblp.org/search/publ/api",
               params={"q": f"{ids.title} {ids.author}", "format": "json", "h": 30})
-    if r is None or not r.ok:
-        return None, "", ""
+    # An unreachable dblp is not an absent paper. dblp signals a throttle with a
+    # 500 HTML page or a timeout rather than the documented 429, so the note has
+    # to say "could not check", not "not in dblp". See reference/dblp.md.
+    if r is None:
+        return None, "", "dblp did not respond (throttle or outage)"
+    if not r.ok:
+        wait = r.headers.get("Retry-After")
+        return None, "", (f"dblp returned HTTP {r.status_code}"
+                          + (f"; Retry-After: {wait}s" if wait else ""))
     try:
         hits = r.json()["result"]["hits"].get("hit") or []
     except (ValueError, KeyError, TypeError, AttributeError):
-        return None, "", ""
+        return None, "", "dblp returned a non-JSON body (its error page)"
 
     want = L._norm_title(ids.title)
     # The published record and the CoRR preprint of the same paper both match the
@@ -797,6 +809,9 @@ def gather(ids: L.Ids) -> tuple[dict, dict, dict]:
     b, ag, url = from_dblp(ids)
     if b:
         entries[ag], urls[ag] = b, url
+    elif url:
+        # not a miss: dblp could not be reached, and the caller has to be told
+        extra["dblp_note"] = url
 
     b, ag, note, url = from_scholar(ids)
     if b:
@@ -938,6 +953,11 @@ def main() -> int:
     warnings: list[str] = []
     if note := extra.get("scholar_note"):
         warnings.append(f"Scholar contributed nothing: {note}")
+    if note := extra.get("dblp_note"):
+        warnings.append(
+            f"dblp could not be checked: {note}. This is a gap in coverage, not "
+            f"evidence the paper is absent from dblp — for a CS paper it may be "
+            f"holding the booktitle and editors no other index has. Retry.")
 
     if args.single or len(entries) == 1:
         src = next((s_ for s_ in ([args.prefer] if args.prefer else []) + KEY_TRUST

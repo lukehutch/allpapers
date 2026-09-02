@@ -629,14 +629,27 @@ def probe_dblp(ids: Ids) -> list[dict]:
         return []
     r = get("https://dblp.org/search/publ/api",
             params={"q": f"{ids.title} {ids.author}", "format": "json", "h": 30})
-    if r is None or not r.ok:
-        return []
+    # A throttled or broken dblp must not be reported as "dblp has nothing".
+    # Raising puts it in the caller's probe-failure warning; returning [] would
+    # make an outage indistinguishable from a genuine miss, and dblp signals a
+    # throttle with a 500 HTML page or a timeout rather than the 429 its FAQ
+    # documents. See reference/dblp.md.
+    if r is None:
+        raise RuntimeError("dblp did not respond (throttle or outage); "
+                           "this is not a miss — retry before concluding")
+    if not r.ok:
+        wait = r.headers.get("Retry-After")
+        raise RuntimeError(
+            f"dblp returned HTTP {r.status_code}"
+            + (f"; Retry-After: {wait}s" if wait else "")
+            + " — this is not a miss, retry before concluding")
     try:
         hits = r.json()["result"]["hits"].get("hit") or []
     except (ValueError, KeyError, TypeError, AttributeError):
-        # dblp answers a malformed or throttled request with an HTML error page
-        # under a 500, so a parse failure here is a service problem, not a miss.
-        return []
+        # dblp answers a malformed or throttled request with an HTML error page,
+        # so a parse failure here is a service problem, not a miss.
+        raise RuntimeError("dblp returned a non-JSON body (its error page); "
+                           "this is not a miss, retry before concluding")
 
     want = _norm_title(ids.title)
     out = []

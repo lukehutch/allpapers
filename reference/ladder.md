@@ -109,7 +109,10 @@ else on the ladder does: it resolves a CS paper's identity precisely, where Scho
 at rung 4 does not, and it carries the booktitle, editors and series of conference
 proceedings that Crossref often has no record of. It also rate-limits hard and
 silently, answering with a `dblp: error 500` HTML page after about a dozen quick
-requests, so query it a couple of times per paper and no more. `dblp.md`.
+requests — not the HTTP 429 its own FAQ documents — so query it a couple of times
+per paper and no more, and leave at least 4 seconds between requests, which is
+the `Crawl-delay` in its `robots.txt`. Anything bulk belongs in its XML dump, not
+in the API. `dblp.md`.
 
 **OpenAlex now hosts full text of its own**, which makes this rung better than it
 used to be. A work object carries `has_content` and `content_urls`, and where
