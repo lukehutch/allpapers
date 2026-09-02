@@ -198,12 +198,20 @@ Either form works, and they differ in what they give up:
   that an accented letter is already its own group: write `{K}{\"o}rper`, bracing
   only the `K`.
 
-**The scripts do not do this for you.** No index marks a title's language, and
-none of the ones merged here brace German capitals: `10.1002/andp.19053221004`
-comes back from Crossref as the unprotected first row above. When an entry's title
-is not English, add the braces by hand before recording it in `verification/bib.md`
-— the entry is wrong at the moment it is written, not at the moment it renders,
-and nothing downstream will catch it.
+**The scripts protect some of this, and deliberately not this part.**
+`protect_title()` braces maths spans and words carrying a capital after their
+first letter — `{AdS}`, `{QCD}`, `{Ba-La-Cu-O}`, `{$N$}` — and prints a
+`% normalised — title: brace-protected …` line when it does. It leaves an
+ordinary initial capital alone, because a style that sentence-cases English is
+doing what whoever chose it asked for. It also bails out entirely on a title that
+already contains a brace, on the assumption that one has been hand-tuned.
+
+That rule is right for English and wrong for German, and nothing in the pipeline
+can tell the two apart: no index merged here marks a title's language.
+`10.1002/andp.19053221004` therefore comes back exactly as the unprotected first
+row above. **Non-English capitals are yours to brace by hand** — see the
+proofreading pass in `SKILL.md`. The entry is wrong at the moment it is written,
+not at the moment it renders, and nothing downstream will catch it.
 
 ## Two traps that merging cannot fix
 

@@ -459,6 +459,43 @@ noise, not provenance.
 - **Verbatim, source-verified quotes** with locators, for every claim the citing
   text makes about the paper.
 
+### Proofread every new entry before you finish
+
+**Every entry you add or change gets read back, character by character, against
+the paper's own title page** — not against an index's rendering of it. This is
+your job, not the tool's: the merge cannot repair what every index it consulted
+got wrong, and a damaged name or a lowercased noun is invisible until someone
+else's LaTeX run produces a wrong bibliography.
+
+Check, in each new entry:
+
+- **Diacritics survived, and are the right ones.** `Müller`, not `Muller`, not
+  `M?ller`. Measured on `10.1007/BF01303701`: Crossref serves the author as
+  `M�ller` — a literal U+FFFD replacement character, in its BibTeX, its CSL
+  JSON and its API record alike — OpenAlex repeats it, INSPIRE flattens it to
+  ASCII `Muller`, and the title's dashes arrive as `Ba?La?Cu?O`. The publisher
+  deposited it broken, so **no index on the ladder can give you the umlaut**.
+  Only the paper itself can.
+- **No mojibake.** `Ã¶`, `Ã©`, `â€™` mean UTF-8 was read as Latin-1 somewhere
+  upstream; `�` and a stray `?` mid-word mean a character was destroyed outright.
+  Neither is recoverable by re-fetching from the same index.
+- **Capitals that carry meaning are braced.** German nouns above all, and any
+  proper noun, acronym, gene, chemical symbol or place name mid-title in any
+  language. `protect_title()` covers maths and internally-capitalized words only.
+- **Nothing over-braced either.** Spanish, French and Italian titles capitalize
+  only the first word and proper nouns; brace what those languages capitalize,
+  and leave the rest for the style to case as it likes. Do not impose English
+  title case on a title that never had it.
+- **Author names parse as names.** Keep the `Surname, Given` comma form so that
+  `von`, `van der`, `de` and `bin` stay with the surname, and check that a name
+  the index has flattened to initials really is initials in the paper.
+- **One representation per file.** Literal UTF-8 `ü` and LaTeX `{\"u}` both work,
+  but mixing them in one `.bib` breaks sorting and makes later edits error-prone.
+  Match whatever the file already uses.
+
+When an index and the paper disagree, the paper wins, and the correction goes in
+the record with the rest of the entry.
+
 Two rules from `reference/verification.md` that bind while retrieving, not just
 while writing:
 
@@ -487,6 +524,9 @@ Finish any lookup by telling the user, explicitly:
 4. **Anything unverified** — an `identity unconfirmed` location that was used, a
    field only one index carried, a quote taken from a PDF text layer rather than
    source, a Scholar result that could not be checked because Scholar was blocking.
+5. **That the new entries were proofread**, and any character you had to repair by
+   hand — a diacritic no index carried, a brace added to protect a German noun.
+   If a name could not be confirmed against the paper itself, say which one.
 
 `scripts/allpapers-locate --json` and `scripts/allpapers-bibtex --json` give you
 the material for 1 and 3 without re-running anything.

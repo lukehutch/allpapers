@@ -45,9 +45,11 @@ the URLs. For an arXiv paper on its own, `scripts/arxiv-source <id>` does the
 ### 2. Full bibliographic metadata
 
 Record all authors (full names), exact title, journal, volume, pages, year, DOI
-and arXiv eprint ID. If the title is not English, brace-protect its capitals as
-you write it — `{{Zur Elektrodynamik bewegter K{\"o}rper}}` — or a `.bst` will
-lowercase the German nouns. See `reference/bibtex.md`.
+and arXiv eprint ID. Then proofread what you wrote against the paper's own title
+page — diacritics intact, no mojibake, capitals that carry meaning brace-protected
+(`{{Zur Elektrodynamik bewegter K{\"o}rper}}`, or a `.bst` will lowercase the
+German nouns). The full checklist is in `SKILL.md`; the case-folding mechanics are
+in `reference/bibtex.md`.
 
 **Every entry must be cross-checked against an authoritative index** — Crossref,
 INSPIRE-HEP, NASA ADS, Google Scholar or the publisher's own page. Search by title
