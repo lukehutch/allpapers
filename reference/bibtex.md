@@ -170,6 +170,41 @@ easy to miss because the list is 1,011 names long. Note that the dangling
 separator has no trailing space, so splitting on `" and "` yields no empty slot —
 the check has to look for the trailing `and` explicitly.
 
+## Protect capitals a `.bst` would destroy
+
+Most `.bst` styles lowercase every word of a title but the first. In English that
+is usually harmless. In **German it is wrong**, because German capitalizes all
+nouns, and the same goes for any proper noun, acronym or chemical symbol sitting
+mid-title in any language. BibTeX preserves whatever is inside braces, so the
+capitals have to be braced in the `.bib` file.
+
+Measured with `plain`, `plainnat`, `unsrt`, `alpha`, `ieeetr` and `apalike` — all
+six fold the case, and both protections survive all six:
+
+| In the `.bib` file | Rendered by `plain` |
+|---|---|
+| `title = {Zur Elektrodynamik bewegter K{\"o}rper}` | Zur elektrodynamik bewegter körper ✗ |
+| `title = {{Zur Elektrodynamik bewegter K{\"o}rper}}` | Zur Elektrodynamik bewegter Körper ✓ |
+| `title = {Zur {E}lektrodynamik bewegter {K}{\"o}rper}` | Zur Elektrodynamik bewegter Körper ✓ |
+
+Either form works, and they differ in what they give up:
+
+- **Brace the whole title** — one extra `{}` around the existing value. Quick, and
+  the right choice when nearly every word needs protecting. It also freezes
+  everything else about the title, so a style that would legitimately recase the
+  rest can no longer touch it.
+- **Brace each capital individually** — `{E}`, `{K}`. More work, but it protects
+  exactly what needs protecting and leaves the rest of the line to the style. Note
+  that an accented letter is already its own group: write `{K}{\"o}rper`, bracing
+  only the `K`.
+
+**The scripts do not do this for you.** No index marks a title's language, and
+none of the ones merged here brace German capitals: `10.1002/andp.19053221004`
+comes back from Crossref as the unprotected first row above. When an entry's title
+is not English, add the braces by hand before recording it in `verification/bib.md`
+— the entry is wrong at the moment it is written, not at the moment it renders,
+and nothing downstream will catch it.
+
 ## Two traps that merging cannot fix
 
 **The reprint trap.** arXiv's Atom record carries a `doi` and a `journal_ref`
