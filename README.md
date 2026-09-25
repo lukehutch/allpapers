@@ -421,7 +421,7 @@ Everything else, in the order rule 1 implies:
 
 - **paperclip** — read only what you need: `paperclip grep <pattern> /papers/<id>`,
   `paperclip scan`, `paperclip ls /papers/<id>/sections/`. Line numbers make quotes
-  citable as `#L45-L52`. One section costs roughly 200 tokens against 40k for a
+  citable as `content.lines#L45-L52`. One section costs roughly 200 tokens against 40k for a
   whole paper, so never `cat` a paper you can grep — and `cat` truncates large
   files anyway (see the defects below).
 - **Europe PMC JATS XML** — authored structure: sections, equations, references.
@@ -441,7 +441,7 @@ Everything else, in the order rule 1 implies:
 ### The ladder, in short
 
 1. **paperclip** — already-extracted, line-numbered full text. Fastest, and the
-   line numbers make quotes citable as `#L45-L52`.
+   line numbers make quotes citable as `content.lines#L45-L52`.
 2. **arXiv LaTeX source** — the best format that exists for anything on arXiv.
 3. **CORE and Unpaywall** — the two large open indices, plus OpenAlex and Europe
    PMC, which answer the same question from different angles.
@@ -526,7 +526,7 @@ is a candidate and not yet a source:
 ```bash
 scripts/allpapers-fetch arXiv:1706.03762 --stage      # to a temp dir; nothing permanent
 # read it, then one of:
-scripts/allpapers-fetch arXiv:1706.03762 --promote /tmp/allpapers-… --justification '…' --quote '…@#L7'
+scripts/allpapers-fetch arXiv:1706.03762 --promote /tmp/allpapers-… --justification '…' --quote '…@content.lines#L7'
 scripts/allpapers-fetch arXiv:1706.03762 --reject     --justification '…'
 ```
 
@@ -584,8 +584,9 @@ export ALLPAPERS_VERIFICATION_DIR=~/refs                       # for the rest of
 (`Vaswani:2017lxt`), and the directory is named for the key exactly as specified.
 Colons are legal on Linux and macOS but illegal in Windows filenames, so a
 repository containing `verification/source/Vaswani:2017lxt/` will not check out on
-Windows. If that matters for your repository, sanitize the directory name — the
-key inside the `.bib` entry must not change.
+Windows. If that matters for your repository, pass `--key` with a key that has
+no colon. It is used for the entry, the `bib.md` heading, the directory and the
+file names alike, so none of them can disagree with the others.
 
 ### The report at the end
 

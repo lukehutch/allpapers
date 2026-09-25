@@ -23,7 +23,7 @@ import re
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import quote, unquote_plus, urlsplit
 
 import requests
 
@@ -123,19 +123,71 @@ def parse_identifier(raw: str) -> Ids:
     return ids
 
 
-def get(url: str, **kw) -> requests.Response | None:
+SECRET_PARAMS = {"email", "mailto", "api_key", "apikey", "apiKey", "key",
+                 "api-key", "tool", "access_token", "token"}
+# The configured values themselves, so a parameter carrying one is dropped
+# whatever it is called.
+SECRET_VALUES = {v for k, v in CFG.items()
+                 if isinstance(v, str) and len(v) >= 6
+                 and (k == "email" or k.endswith("key"))}
+
+
+def scrub_url(url: str) -> str:
+    """Drop credential and contact parameters before a URL is written anywhere.
+
+    The polite-pool parameters carry the user's own email address, and bib.md is
+    committed. A URL recorded for provenance has to be the address that was
+    fetched, minus anything private — dropping these leaves it re-fetchable.
+    """
+    if not url or "?" not in url:
+        return url
+    base, _, qs = url.partition("?")
+    secret_names = {p.lower() for p in SECRET_PARAMS}
+    kept = [kv for kv in qs.split("&")
+            if kv.partition("=")[0].lower() not in secret_names
+            and unquote_plus(kv.partition("=")[2]) not in SECRET_VALUES]
+    return base + ("?" + "&".join(kept) if kept else "")
+
+
+def credentials(url: str) -> dict:
+    """Query parameters a host needs to authenticate the request.
+
+    Added by send() and nowhere else, so no URL this program holds ever carries a
+    key: a location, a record or a report cannot leak what it never contained.
+    OpenAlex's cached full text answers only with `api_key`, and writing the key
+    into the located URL put it into verification/bib.md and PROVENANCE.json.
+    """
+    if OPENALEX_KEY and urlsplit(url).hostname == "content.openalex.org":
+        return {"api_key": OPENALEX_KEY}
+    return {}
+
+
+def send(method: str, url: str, headers: dict | None = None,
+         **kw) -> requests.Response | None:
+    """The request function for this script, allpapers-bibtex and allpapers-fetch.
+
+    Credentials go in on the way out and come off the response URL on the way
+    back, so `r.url` is always safe to print or record. The two requests made
+    elsewhere, CORE's search below and Gemini's in allpapers-search, send their
+    keys in a header and record no URL.
+    """
+    if cred := credentials(url):
+        kw["params"] = {**cred, **(kw.get("params") or {})}
     try:
-        return requests.get(url, headers=HEADERS, timeout=TIMEOUT, **kw)
+        r = requests.request(method, url, headers=headers or HEADERS,
+                             timeout=TIMEOUT, **kw)
     except requests.RequestException:
         return None
+    r.url = scrub_url(r.url)
+    return r
+
+
+def get(url: str, **kw) -> requests.Response | None:
+    return send("GET", url, **kw)
 
 
 def head(url: str, **kw) -> requests.Response | None:
-    try:
-        return requests.head(url, headers=HEADERS, timeout=TIMEOUT,
-                             allow_redirects=True, **kw)
-    except requests.RequestException:
-        return None
+    return send("HEAD", url, allow_redirects=True, **kw)
 
 
 # --------------------------------------------------------------------------
@@ -144,8 +196,15 @@ def head(url: str, **kw) -> requests.Response | None:
 
 def surname(display_name: str | None) -> str | None:
     """Last whitespace-separated token of a display name. Good enough for a
-    search term: dblp prefix-matches, so a compound surname still hits."""
-    parts = (display_name or "").split()
+    search term: dblp prefix-matches, so a compound surname still hits.
+
+    OpenAlex gives names taken from DataCite, which covers every arXiv DOI, as
+    "Maldacena, Juan M."; there the surname is what precedes the comma.
+    """
+    name = (display_name or "").strip()
+    if "," in name:
+        return name.split(",")[0].strip() or None
+    parts = name.split()
     return parts[-1] if parts else None
 
 
@@ -328,7 +387,9 @@ def loc(source, fmt, url, note="", diagnostic=False) -> dict:
     # label has to be corrected, or a PDF sorts above genuine HTML.
     if fmt == "html" and url and PDF_URL_RE.search(url):
         fmt = "pdf"
-    return {"source": source, "format": fmt, "url": url, "note": note,
+    # Every location passes through here, and every one is printed, returned
+    # as --json and copied into bib.md and PROVENANCE.json by allpapers-fetch.
+    return {"source": source, "format": fmt, "url": scrub_url(url), "note": note,
             "diagnostic": diagnostic}
 
 
@@ -432,7 +493,8 @@ def probe_openalex(ids: Ids) -> list[dict]:
 
     # OpenAlex caches its own copies: a GROBID TEI XML parse and the PDF. The XML
     # is structured text, so it outranks every PDF here. Downloads need a key and
-    # cost $0.01 per file against the account's daily budget.
+    # cost $0.01 per file against the account's daily budget. The URL is listed
+    # bare: send() adds the key when it is fetched (see credentials()).
     have = w.get("has_content") or {}
     urls = w.get("content_urls") or {}
     for key, fmt, label in (("grobid_xml", "xml", "GROBID TEI XML"),
@@ -441,7 +503,6 @@ def probe_openalex(ids: Ids) -> list[dict]:
             url = urls[key]
             if OPENALEX_KEY:
                 note = f"{label}, $0.01/file"
-                url = f"{url}?api_key={OPENALEX_KEY}"
             else:
                 note = f"{label} — needs a free key: https://openalex.org/users"
             out.append(loc("OpenAlex content", fmt, url, note))

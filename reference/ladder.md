@@ -45,7 +45,7 @@ absence.
 ## Rung 1 — paperclip
 
 First because the full text is already extracted, sectioned and line-numbered, so
-a quote comes back citable as `#L45-L52` with no parsing at all, and because the
+a quote comes back citable as `content.lines#L45-L52` with no parsing at all, and because the
 index is fast.
 
 ```bash

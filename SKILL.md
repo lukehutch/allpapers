@@ -268,7 +268,7 @@ unpacking a tarball; prefer the source when equations matter. See
 
 - **paperclip** — read only what you need: `paperclip grep`, `paperclip scan`,
   `paperclip ls /papers/<id>/sections/`, all against `/papers/<id>`. Line
-  numbers make quotes citable as `#L45-L52`. Reading one section costs roughly
+  numbers make quotes citable as `content.lines#L45-L52`. Reading one section costs roughly
   200 tokens against 40k for a whole paper, so never read a whole paper you can
   grep — and when you do need all of it, **a bare `cat` truncates at ~1000
   characters**; pass `--full`. Two things to know before quoting: its LaTeX is
@@ -379,11 +379,18 @@ silently doing nothing.
 scripts/allpapers-fetch 10.1038/nature14539 \
   --justification "Defines the depth-of-representation argument cited in §2." \
   --claim "Deep learning discovers structure in high-dimensional data" \
-  --quote "Deep learning allows computational models ... to learn representations of data with multiple levels of abstraction@#L54-L56"
+  --quote "Deep learning allows computational models ... to learn representations of data with multiple levels of abstraction@content.lines#L54-L56"
 ```
 
 Downloads source and PDF into `verification/source/<key>/`, builds the composite
 BibTeX entry, and writes the `verification/bib.md` record.
+
+`--claim` and `--quote` repeat; each quote is recorded under the nearest
+`--claim` before it. A line locator names its file, relative to
+`source/<key>/`: `content.lines#L54` or `latex/main.tex#L54`. A bare `#L54` is
+refused, because the two files number different lines. `--key K` sets the
+citation key for the entry, the `bib.md` heading, the directory and the file
+names alike.
 
 ### For anything found by keyword or semantic search — stage first
 
@@ -419,7 +426,7 @@ reasoning:
 ```bash
 scripts/allpapers-fetch arXiv:2401.12345 --promote /tmp/allpapers-Author_2024abc-k7yfvxuo \
   --justification "Gives the error bound quoted in §4." \
-  --quote "the estimator converges at rate n^{-1/2}@#L211"
+  --quote "the estimator converges at rate n^{-1/2}@content.lines#L211"
 
 scripts/allpapers-fetch arXiv:2401.12345 --reject \
   --justification "Uses the same term for an unrelated optimization problem; no bearing on the claim."

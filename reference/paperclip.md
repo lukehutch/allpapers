@@ -11,7 +11,7 @@ output — and labels `trials/` "110K+" where the published corpus description s
 over a million. **Treat the `ls /` labels as decoration and count with SQL.**
 
 It is first on the ladder because the full text is already extracted, split into
-sections and **line-numbered**, so a quote comes back citable as `#L45-L52` with
+sections and **line-numbered**, so a quote comes back citable as `content.lines#L45-L52` with
 no parsing. Reading one section costs roughly 200 tokens; loading a whole paper
 costs about 40k. Never `cat` a paper you could `grep`.
 

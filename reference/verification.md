@@ -74,6 +74,11 @@ quote from that paper that supports it, with a page, section, equation number or
 line locator. Copy-paste it; do not retype it. If a claim cannot be supported by a
 verbatim quote, flag it as unsupported.
 
+A line locator names the file its numbers count in, relative to
+`source/<citationKey>/`: `content.lines#L45-L52` for paperclip's text,
+`latex/main.tex#L45` for the LaTeX. The two number different lines, so a bare
+`#L45` is ambiguous, and `allpapers-fetch` refuses it.
+
 ### 4. Attribution verification
 
 If the `.tex` file attributes a specific result, formula or finding to the cited
@@ -195,6 +200,15 @@ paths already filled in. For a single known paper you are certain about, omit
 the field a future session reads to avoid redoing the judgment, so a bare "not
 relevant" wastes the record.
 
+`--claim` and `--quote` repeat. Each quote is recorded under the nearest
+`--claim` before it on the command line, and quotes given before the first
+`--claim` go under that claim, so one `--claim` followed by several `--quote`s
+records them all against it. A claim with no quote is recorded as UNSUPPORTED.
+
+`--key K` replaces the citation key everywhere: the entry key, the `bib.md`
+heading, `source/K/` and the file names in it. `--promote` keeps the key the
+directory was staged under unless `--key` is given.
+
 **Record a rejection only for a paper that genuinely looked relevant.** A search
 hit the title and abstract rule out is not written down at all. The file is a
 note about a real judgment call, not a search log.
@@ -208,7 +222,7 @@ claim to be:
 |---|---|
 | `latex/` | the unpacked arXiv submission — the best format there is |
 | `<key>-arxiv-src.tar.gz` | the exact bytes arXiv served, before unpacking |
-| `content.lines` | paperclip's extracted text, line-numbered, so quotes cite as `#L45` |
+| `content.lines` | paperclip's extracted text, line-numbered, so quotes cite as `content.lines#L45` |
 | `<key>.pdf` | the PDF, fetched even when better formats exist |
 | `<key>.bib` | the merged entry, same as the one in `bib.md` |
 | `PROVENANCE.json` | every URL tried, what answered, sizes, sha256 digests |
@@ -266,7 +280,7 @@ edits are expected on top of it, particularly the claims and quotes.
   - Claim: The architecture dispenses with recurrence and convolution entirely.
     Quote: "We propose a new simple network architecture, the Transformer, based
     solely on attention mechanisms, dispensing with recurrence and convolutions
-    entirely." (#L11)
+    entirely." (content.lines#L11)
 - **Status**: VERIFIED
 - **Local copies**: `source/Vaswani:2017lxt/`
   - `latex/` — latex, 2,425,070 bytes
@@ -281,11 +295,12 @@ Field by field:
 | Field | Why it is there |
 |---|---|
 | the BibTeX block | `bib.md` is the canonical home of the entry. The `.bib` file is generated from it, not the other way round |
+| **DOI** | the journal's DOI when one is known. The arXiv DOI `10.48550/arXiv.…` appears only for a paper with no journal version; the arXiv id stays in **arXiv** and in the entry's `eprint` |
 | **Metadata cross-checked against** | requirement 2 — which authoritative indexes agreed |
 | **Source URLs** | *every* location that contributed: each metadata index, each artefact fetched and where it was written, and each channel located but not fetched. One URL would hide where the rest came from |
 | **Abstract** | recorded whenever any index has one, with the index named. It is what a later session reads to re-judge relevance without re-fetching |
 | **Justification** | why this paper is or is not relevant to the question asked |
-| **Claims supported** | requirement 3 — one verbatim quote per claim, with a locator |
+| **Claims supported** | requirement 3 — at least one verbatim quote per claim, each with a locator; a line locator names its file |
 | **Local copies** | the files, with byte counts and sha256 prefixes, so a later session can tell whether the copy on disk is the one that was quoted |
 | **Not retrievable** | channels that were tried and failed, with the reason |
 | **Indexes with no record** | silence is a finding: an index that has never heard of the paper is worth knowing about |

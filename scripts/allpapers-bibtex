@@ -58,37 +58,14 @@ ZERO_WIDTH = ("\u200b", "\u200c", "\u200d", "\ufeff")
 ARXIV_NS = {"a": "http://www.w3.org/2005/Atom", "ar": "http://arxiv.org/schemas/atom"}
 
 
-SECRET_PARAMS = {"email", "mailto", "api_key", "apikey", "apiKey", "key",
-                 "api-key", "tool", "access_token", "token"}
-
-
-def scrub_url(url: str) -> str:
-    """Drop credential and contact parameters before a URL is written anywhere.
-
-    The polite-pool parameters carry the user's own email address, and bib.md is
-    committed. A URL recorded for provenance has to be the address that was
-    fetched, minus anything private — dropping these leaves it re-fetchable.
-    """
-    if not url or "?" not in url:
-        return url
-    base, _, qs = url.partition("?")
-    kept = [kv for kv in qs.split("&")
-            if kv.partition("=")[0].lower() not in
-            {p.lower() for p in SECRET_PARAMS}]
-    return base + ("?" + "&".join(kept) if kept else "")
+# One copy, in allpapers-locate, beside the request function that uses it.
+SECRET_PARAMS = L.SECRET_PARAMS
+scrub_url = L.scrub_url
 
 
 def get(url: str, headers: dict | None = None, **kw):
-    """As L.get, but lets a caller add headers instead of replacing them.
-
-    L.get pins headers= itself, so passing the BibTeX Accept header through it
-    raises TypeError.
-    """
-    try:
-        return L.requests.get(url, headers={**L.HEADERS, **(headers or {})},
-                              timeout=L.TIMEOUT, **kw)
-    except L.requests.RequestException:
-        return None
+    """As L.get, but lets a caller add headers instead of replacing them."""
+    return L.send("GET", url, headers={**L.HEADERS, **(headers or {})}, **kw)
 
 
 # --------------------------------------------------------------------------
@@ -805,6 +782,20 @@ def gather(ids: L.Ids) -> tuple[dict, dict, dict]:
                 ids.author = (first.split(",")[0].strip() if "," in first
                               else L.surname(first))
                 break
+    # An arXiv DOI names the preprint. When INSPIRE or arXiv knows the journal
+    # DOI, that is the one to cite, and Crossref is asked about it; the arXiv id
+    # stays in eprint. The first author has to match, since arXiv's DOI field
+    # is typed in by the authors.
+    if ids.doi and ids.doi.lower().startswith("10.48550/"):
+        vor = field(entries.get("INSPIRE-HEP", ""), "doi") or extra.get("doi") or ""
+        if vor and not vor.lower().startswith("10.48550/"):
+            b, ag, url = from_doi_negotiation(vor)
+            first = (field(b or "", "author").split(" and ")[0]).split(",")[0]
+            if b and ids.author and \
+                    set(ids.author.lower().split()) <= set(first.lower().split()):
+                if ag not in entries:
+                    entries[ag], urls[ag] = b, url
+                ids.doi = vor
     # dblp, like Scholar, is entered by title, so it goes after the block above.
     b, ag, url = from_dblp(ids)
     if b:
@@ -875,6 +866,13 @@ def page_label(pages: str) -> str:
     return f"pp. {pages}" if re.search(r"[-–—]", pages) else pages
 
 
+def record_doi(bib: str, ids: L.Ids) -> str:
+    """The DOI a record names: the journal's when one is known, else arXiv's."""
+    dois = [d for d in (ids.doi, field(bib, "doi")) if d]
+    return next((d for d in dois if not d.lower().startswith("10.48550/")),
+                dois[0] if dois else "")
+
+
 def bibmd_stub(bib: str, ids: L.Ids, authority: str, urls: dict) -> str:
     """A bib.md record carrying only what a metadata lookup can know.
 
@@ -895,7 +893,7 @@ def bibmd_stub(bib: str, ids: L.Ids, authority: str, urls: dict) -> str:
             page_label(field(bib, "pages")),
             f"({field(bib, 'year')})" if field(bib, "year") else "",
         ] if x),
-        f"- **DOI**: {ids.doi or field(bib, 'doi') or '—'}",
+        f"- **DOI**: {record_doi(bib, ids) or '—'}",
         f"- **arXiv**: {ids.arxiv or field(bib, 'eprint') or '—'}",
         f"- **Metadata cross-checked against**: {authority}",
         "- **Source URLs**:",
@@ -908,7 +906,8 @@ def bibmd_stub(bib: str, ids: L.Ids, authority: str, urls: dict) -> str:
         "- **Justification**: TODO — why this paper is or is not relevant",
         "- **Claims supported**:",
         "  - Claim: TODO — what the .tex says about this reference",
-        '    Quote: "TODO — verbatim from the paper" (p.X / Sec.Y / #L<n>)',
+        '    Quote: "TODO — verbatim from the paper" '
+        '(p.X / Sec.Y / content.lines#L<n> / latex/<file>.tex#L<n>)',
         "- **Status**: TODO — VERIFIED / DISCREPANCY / UNSUPPORTED",
         "- **Notes**: —",
     ]

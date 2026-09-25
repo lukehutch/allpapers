@@ -95,6 +95,16 @@ The **cite key** comes from the most-trusted index that has one — INSPIRE firs
 because its `Author:YYYYxx` keys are the shared currency of the physics
 literature and someone else may already be citing the paper by that key.
 
+**An arXiv DOI gives way to the journal's.** An arXiv identifier resolves to
+arXiv's DataCite DOI, `10.48550/arXiv.<id>`, which names the preprint. When
+INSPIRE's entry, or failing that arXiv's own record, carries a journal DOI,
+Crossref is asked for that DOI too, and it becomes the DOI the record names; the
+arXiv id stays in `eprint`. The Crossref entry is used only when its first
+author's surname matches, because arXiv's DOI field is typed in by the authors.
+Measured on `hep-th/9806057`: the record now names `10.1023/A:1026611718277`
+and merges Crossref, where before it named the arXiv DOI and listed Crossref as
+having no record.
+
 Fields dropped on sight: `copyright`, `abstract`, `language`, `keywords`,
 `urldate`, `collection`, `note`, `bibsource`, `biburl`, `timestamp`. DataCite
 returns arXiv's entire distribution license as `copyright`, and repeats subject
@@ -231,11 +241,21 @@ exists to catch — see `reference/verification.md`, requirement 4.
 
 ## Credentials never reach the record
 
-`scrub_url()` strips `email`, `mailto`, `api_key`, `key`, `tool`,
-`access_token` and their variants from every URL before it is printed or written
-to a file. The polite-pool parameters carry the user's own address, and
-`verification/bib.md` is committed. A scrubbed URL is still re-fetchable; the
-PubMed one records as
+Requests go through one function, `send()` in `allpapers-locate`, which
+`allpapers-bibtex` and `allpapers-fetch` share. (CORE's search and Gemini send
+their keys in a header instead and record no URL.) It adds OpenAlex's content key as
+a request parameter only when the request is sent, and replaces the response's
+`url` with its scrubbed form, so the URL a caller reads back never carries a
+credential. Every located channel passes through `loc()`, which scrubs its URL
+as well, and `allpapers-fetch` scrubs every URL again as it writes
+`PROVENANCE.json`, which covers a directory staged by an older version.
+
+`scrub_url()` drops `email`, `mailto`, `api_key`, `key`, `tool`, `access_token`
+and their variants, and also any parameter whose value is one of the configured
+keys or the configured email address, whatever the parameter is called. The
+polite-pool parameters carry the user's own address, and `verification/bib.md`
+is committed. A scrubbed URL is still re-fetchable, apart from OpenAlex content
+URLs, which need the key added back; the PubMed one records as
 
 ```
 https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&id=26017442&retmode=xml
