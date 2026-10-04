@@ -157,6 +157,19 @@ Anything found here needs its identity confirmed against the metadata from rung 
 before it is quoted — a file with the right title may be a different version, a
 preprint, or a slide deck.
 
+Three more legal routes belong on this rung:
+
+- **Field and regional repositories** — HAL, OSF Preprints, Zenodo, OSTI, the ACL
+  Anthology, J-STAGE, zbMATH Open and others, when the paper's field or country
+  points at one. `other-indices.md` lists which are scriptable and which only
+  work in a browser.
+- **The Wayback Machine**, when an index points to a copy whose link is now dead.
+  `other-indices.md`.
+- **Public-domain archives** for papers published before 1931 — archive.org,
+  Wikisource, Gallica and the journals' own back archives. Their text is usually
+  OCR, which has its own rules: check every quote against the page image
+  character by character. `public-domain.md`.
+
 ## Rung 6 — shadow libraries, last resort only
 
 Only when rungs 1–5 have all failed and the paper genuinely has no open copy.
@@ -180,10 +193,13 @@ Hard rules, from the project standards:
 2. **Sci-Hub** — `sci-hub.ee` first, it carries the search form; then `.ru`, `.su`,
    `.box`; then `.al`, `.mk`. Manual fallback: `https://sci.bban.top/pdf/<DOI>.pdf`
    with a browser User-Agent.
-3. **Anna's Archive** — `/dyn/` endpoints only, since the HTML sits behind
+3. **Sci-Net** — `https://sci-net.xyz/<DOI>`, no key. Holds only papers members
+   have uploaded on request. A hit is a `/storage/….pdf` link in the page; a miss
+   is the front page with HTTP 200.
+4. **Anna's Archive** — `/dyn/` endpoints only, since the HTML sits behind
    DDoS-Guard. The download half needs **paid membership**, so this is a dead end
    unless the user already has a key.
-4. **welib.org**, then Z-Library — browser only, human in the loop.
+5. **welib.org**, then Z-Library — browser only, human in the loop.
 
 ### Check the mirrors before concluding a paper is unavailable
 

@@ -451,10 +451,15 @@ Everything else, in the order rule 1 implies:
 5. **Web search, and Gemini grounded search** — publisher pages, institutional
    repositories, theses, author copies. Gemini runs real Google Search queries and
    returns answers with citations, which reaches material paperclip's four backends
-   do not index. Results are leads to verify, never sources to quote.
+   do not index. Results are leads to verify, never sources to quote. Field and
+   regional repositories (HAL, OSF, Zenodo, OSTI and others) and the Wayback
+   Machine for dead links sit here too, and public-domain archives (archive.org,
+   Wikisource, Gallica) for works published before 1931, whose OCR text must be
+   checked against the page image — `reference/public-domain.md`.
 6. **Shadow libraries** — last resort only, when nothing above has a copy.
    Unlicensed, not open. Within the rung the order is **LibGen** (the only one
-   with a real JSON API and no key), then **Sci-Hub**, then **Anna's Archive**
+   with a real JSON API and no key), then **Sci-Hub**, then **Sci-Net** (DOI pages
+   with an uploaded PDF, no key), then **Anna's Archive**
    (whose download half needs paid membership), then **welib.org / Z-Library**
    (browser only). Fetched copies are verification-only and must never be
    committed — arXiv's own terms forbid re-serving e-prints, and the reasoning
@@ -616,12 +621,13 @@ and 3 without re-running anything.
 | `reference/core.md` | CORE API v3, auth, rate limits, data-quality traps |
 | `reference/unpaywall.md` | Unpaywall API, response shape, the broken search endpoint |
 | `reference/search.md` | Ranking modes, result limits, sort order, how to word a query |
-| `reference/other-indices.md` | OpenAlex, Crossref, Europe PMC, Semantic Scholar, NCBI, DOAJ, OpenAIRE |
+| `reference/other-indices.md` | OpenAlex, Crossref, Europe PMC, Semantic Scholar, NCBI, DOAJ, OpenAIRE, field and regional repositories, the Wayback Machine |
 | `reference/scholar.md` | Google Scholar URL patterns, the silent block, CAPTCHA handling, SerpApi |
 | `reference/gemini.md` | Gemini grounded search: the API and `agy` backends, request shapes, citation extraction |
 | `reference/bibtex.md` | The composite merge, the per-field trust order, every normalization applied |
 | `reference/scihub.md` | scihub-cli, its defects, mirror state, the manual fallback |
-| `reference/shadow-libraries.md` | LibGen/Anna's Archive/Z-Library APIs, live mirror status, SLUM, the traps |
+| `reference/public-domain.md` | archive.org, Wikisource, Gallica, journal back archives; the OCR rules |
+| `reference/shadow-libraries.md` | LibGen/Sci-Net/Anna's Archive/Z-Library APIs, live mirror status, SLUM, the traps |
 | `reference/verification.md` | `verification/bib.md` and `verification/equations.py` |
 
 ## How many papers are there?

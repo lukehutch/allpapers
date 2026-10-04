@@ -1,6 +1,6 @@
 # Shadow libraries — the last rung
 
-Sci-Hub, Anna's Archive, LibGen and Z-Library sit at the **bottom** of the ladder,
+Sci-Hub, Sci-Net, Anna's Archive, LibGen and Z-Library sit at the **bottom** of the ladder,
 below Google Scholar and web search. They hold unlicensed copies. Reach for them
 only when every legitimate route in `ladder.md` has returned nothing, and then
 under the same three constraints that already govern Sci-Hub in this skill:
@@ -119,8 +119,32 @@ User-Agent (`SKILL.md`). These mirrors serve an interstitial or a stub to anythi
 that does not look like a browser, so the agent string is load-bearing here.
 
 **Keys / registration:** none. **Rate limits:** none published; the sites are
-unreliable rather than rate-limited. **Paid tier:** none — but see `sci-net.xyz`
-(Elbakyan's newer request-based site), which SLUM tracks as PROTECTED.
+unreliable rather than rate-limited. **Paid tier:** none — but see Sci-Net below.
+
+---
+
+## Sci-Net — Sci-Hub's request site
+
+`sci-net.xyz` is Alexandra Elbakyan's newer site: members request a paper by DOI
+and other members upload it. A fulfilled request stays public at
+`https://sci-net.xyz/<DOI>`. SLUM lists it as `PROTECTED`, but measured on
+2026-10-04 with the Chrome User-Agent it served pages and files with no challenge
+and no login:
+
+- `https://sci-net.xyz/10.1038/nature14539` → 200, a 4,671-byte page titled
+  `Sci-Net: Deep learning`, with the PDF in an iframe:
+  `<iframe src = "/storage/2024/5547686/<hash>/Deep-learning.pdf#view=FitH…">`.
+- That `/storage/…pdf` path → 200 `application/pdf`, 5,549,808 bytes, a real PDF.
+
+**A miss also answers 200.** A DOI nobody has uploaded — and a DOI that does not
+exist at all (`10.9999/not.a.doi`) — returns the same 12,528-byte front page,
+titled plain `Sci-Net`. So the only hit signal is a `/storage/….pdf` link in the
+page; the status code and the title alone mean nothing. `allpapers-mirrors scinet`
+checks for exactly that link.
+
+Making a request needs an account, and fulfilling one is up to other members; do
+not create an account or post a request without the user's say-so. Reading what is
+already uploaded needs neither.
 
 ---
 
@@ -322,8 +346,10 @@ Treat it as a browser-only, human-in-the-loop resource.
    commit to a download.
 2. **Sci-Hub** — `sci-hub.ee` first (it has the search form), then `.ru`/`.su`/`.box`,
    then `.al`/`.mk`; `sci.bban.top/pdf/<DOI>.pdf` as the manual fallback.
-3. **Anna's Archive** — `/dyn/` endpoints only; the download half needs paid
+3. **Sci-Net** — `https://sci-net.xyz/<DOI>`; a hit is a `/storage/….pdf` link
+   in the page, and a miss is the front page with HTTP 200.
+4. **Anna's Archive** — `/dyn/` endpoints only; the download half needs paid
    membership, so this is a dead end unless the user already has a key.
-4. **welib.org**, then Z-Library — browser-only, human-in-the-loop.
+5. **welib.org**, then Z-Library — browser-only, human-in-the-loop.
 
 Stop at the first one that yields the passage you need to verify.

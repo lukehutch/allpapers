@@ -1,6 +1,6 @@
 ---
 name: allpapers
-description: Find and retrieve the full text of scientific papers from paperclip, arXiv LaTeX source, CORE, Unpaywall, OpenAlex, Europe PMC, Google Scholar, Gemini grounded search and shadow libraries (LibGen, Sci-Hub, Anna's Archive, Z-Library) as a last resort. Use when asked to look up a paper, get its full text, search the literature by keyword or by meaning, check what a paper actually says, verify a citation, or build a bibliography. Always prefers parseable text formats over PDF.
+description: Find and retrieve the full text of scientific papers from paperclip, arXiv LaTeX source, CORE, Unpaywall, OpenAlex, Europe PMC, Google Scholar, Gemini grounded search, field repositories, public-domain archives (archive.org, Wikisource, Gallica) and shadow libraries (LibGen, Sci-Hub, Sci-Net, Anna's Archive, Z-Library) as a last resort. Use when asked to look up a paper, get its full text, search the literature by keyword or by meaning, check what a paper actually says, verify a citation, or build a bibliography. Always prefers parseable text formats over PDF.
 ---
 
 # allpapers
@@ -296,10 +296,12 @@ unpacking a tarball; prefer the source when equations matter. See
 ### When nothing free is found
 
 Work down `reference/ladder.md`: Google Scholar (`reference/scholar.md`), then web
-search, then `reference/shadow-libraries.md` as the last resort (LibGen first,
-then Sci-Hub, then Anna's Archive, then welib/Z-Library; `reference/scihub.md`
-covers the scihub-cli wrapper). Do not skip rungs to get to
-the bottom faster.
+search, field and regional repositories and the Wayback Machine
+(`reference/other-indices.md`), public-domain archives for works published before
+1931 (`reference/public-domain.md`), then `reference/shadow-libraries.md` as the
+last resort (LibGen first, then Sci-Hub, then Sci-Net, then Anna's Archive, then
+welib/Z-Library; `reference/scihub.md` covers the scihub-cli wrapper). Do not skip
+rungs to get to the bottom faster.
 
 **A Google Scholar miss is often not a miss.** Scholar refuses some callers with a
 full-size HTTP 200 page containing no results and no CAPTCHA. Check the page is a
@@ -561,11 +563,12 @@ the material for 1 and 3 without re-running anything.
 | `reference/arxiv.md` | LaTeX source retrieval, payload shapes, HTML, the Atom API |
 | `reference/core.md` | CORE API v3, auth, rate limits, data-quality traps |
 | `reference/unpaywall.md` | Unpaywall API, response shape, the broken search endpoint |
-| `reference/other-indices.md` | OpenAlex, Crossref, Europe PMC, Semantic Scholar, NCBI, DOAJ, OpenAIRE |
+| `reference/other-indices.md` | OpenAlex, Crossref, Europe PMC, Semantic Scholar, NCBI, DOAJ, OpenAIRE, field and regional repositories, the Wayback Machine |
 | `reference/scholar.md` | Google Scholar scraping, the silent block, SerpApi |
 | `reference/dblp.md` | dblp: CS identity resolution, proceedings metadata, BibTeX, its rate limiting |
 | `reference/gemini.md` | Gemini grounded search: the API and `agy` backends, request shapes, citation extraction |
 | `reference/bibtex.md` | How the composite entry is merged, the per-field trust order, normalization |
 | `reference/scihub.md` | scihub-cli, its defects, and the manual fallback |
-| `reference/shadow-libraries.md` | LibGen, Anna's Archive and Z-Library, live mirror status, the traps |
+| `reference/public-domain.md` | archive.org, Wikisource, Gallica, journal back archives; the OCR rules |
+| `reference/shadow-libraries.md` | LibGen, Sci-Net, Anna's Archive and Z-Library, live mirror status, the traps |
 | `reference/verification.md` | `verification/bib.md` and `verification/equations.py` |

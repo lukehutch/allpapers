@@ -70,6 +70,13 @@ SERVICES = {
                     "sci-hub.st", "sci-hub.se", "sci-hub.red", "sci-hub.tf",
                     "sci-hub.hkvisa.net"],
     },
+    "scinet": {
+        "note": "DOI page embeds the PDF when someone has uploaded it; no key",
+        "path": "/10.1038/nature14539",
+        # A fulfilled request page links its PDF under /storage/.
+        "marker": re.compile(r'src\s*=\s*"/storage/[^"]+\.pdf', re.I),
+        "domains": ["sci-net.xyz"],
+    },
     "annas": {
         "note": "/dyn/ bypasses DDoS-Guard; downloads need paid membership",
         "path": "/dyn/api/fast_download.json",

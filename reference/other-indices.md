@@ -337,3 +337,60 @@ a legitimate free copy exists. Free, no key.
 200 `application/json`. Aggregates European repository deposits, and sometimes
 holds an institutional copy the other indices missed. Worth a call only when the
 rest of the ladder has come up empty.
+
+## Field and regional repositories
+
+None of these is queried by `allpapers-locate`. Use them on rung 5 of `ladder.md`
+when the paper's field or country points at one and rungs 1–4 found nothing. All
+were measured on 2026-10-04 with the Chrome User-Agent; none needs a key.
+
+**Scriptable:**
+
+| Source | Covers | Call | What comes back |
+|---|---|---|---|
+| HAL | French institutional deposits, all fields | `https://api.archives-ouvertes.fr/search/?q=doiId_s:"<doi>"&fl=halId_s,title_s,fileMain_s` | `fileMain_s` is the PDF; the LIGO detection paper (`10.1103/PhysRevLett.116.061102`) came back as `in2p3-01273200` with its PDF |
+| bioRxiv / medRxiv | life-science preprints | `https://api.biorxiv.org/details/biorxiv/<doi>` (`medrxiv` for the other) | one row per version, with a `jatsxml` URL and `published`, the journal DOI or `NA`. paperclip already mirrors these servers; use the API for the version history and the journal DOI |
+| OSF Preprints | PsyArXiv, SocArXiv and other community preprint servers | `https://api.osf.io/v2/preprints/?filter[title]=<words>` | JSON:API records with a `primary_file` relationship |
+| Zenodo | datasets, software, reports, some papers | `https://zenodo.org/api/records?q=doi:"<doi>"` | records with their files |
+| OSTI | US Department of Energy reports and papers | `https://www.osti.gov/api/v1/records?title=<words>` | records with a `fulltext` link where one exists |
+| ACL Anthology | computational linguistics | `https://aclanthology.org/<id>.bib`, `.pdf` | the canonical BibTeX and PDF |
+| J-STAGE | Japanese journals | `https://api.jstage.jst.go.jp/searchapi/do?service=3&article=<words>` | Atom XML with article links |
+| zbMATH Open | mathematics, back to the 19th century | `https://api.zbmath.org/v1/document/_search?search_string=<query>` | records whose `links` point to the digitized copy (EuDML and others) |
+| RePEc / IDEAS | economics working papers | `https://ideas.repec.org/...` pages | HTML with links to the author's copy |
+
+**Browser only** — an anti-bot challenge or an IP allow-list stops a script; a
+human can still use them:
+
+| Source | Covers | Measured |
+|---|---|---|
+| SSRN | social sciences, law, finance preprints | Cloudflare "Just a moment..." (403) |
+| PhilPapers | philosophy | Cloudflare (403) |
+| OpenReview | ML conference submissions and reviews | API answers 403 `ChallengeRequiredError` |
+| SciELO | Latin American journals | 403 "Establishing a secure connection" |
+| Internet Archive Scholar (`scholar.archive.org`), fatcat | IA's crawl of open-access PDFs, including copies whose original host has gone | "Verify" / "Session Verification" page; `api.fatcat.wiki` timed out |
+| CiteSeerX | computer science PDFs cached from the web | timed out |
+| BASE (Bielefeld) | repository records worldwide | API answers `Access denied for IP address`; it requires registering your IP |
+| NASA ADS | astronomy and physics | API needs a free token (401 without one); `verification.md` already uses it for metadata |
+
+**Shut down:** the Open Access Button / InstantILL API (`api.openaccessbutton.org`,
+`api.oa.works`) answers HTTP 410, "This API has been permanently shut down".
+
+## Wayback Machine — when the free copy's link is dead
+
+An index often points to an author's homepage or a repository URL that no longer
+answers. The Internet Archive may hold a copy of that exact URL:
+
+```bash
+# the closest snapshot of one URL
+curl -s 'https://archive.org/wayback/available?url=<url>'
+# every snapshot of a URL prefix, with MIME type and status
+curl -s 'https://web.archive.org/cdx/search/cdx?url=<url-prefix>*&output=json&limit=50'
+```
+
+Both measured working. Fetch the snapshot with `id_` after the timestamp
+(`https://web.archive.org/web/<timestamp>id_/<url>`) to get the original bytes
+without the Wayback toolbar, and follow redirects (`curl -L`): measured,
+`web/20170908155106id_/http://arxiv.org/pdf/1706.03762` answered 302 and landed on
+`web/20180130182143id_/https://arxiv.org/pdf/1706.03762.pdf`, a different capture
+date. Record the final snapshot URL, not the one requested, and confirm the file's
+identity against the metadata as for any rung-5 find.

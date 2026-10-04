@@ -135,9 +135,14 @@ this is the channel-numbered version the verification record refers to.
     lab pages, author homepages, rights-holding foundations. Record the URL
     actually used; flag personal or translator sites as provenance-unverified and
     spot-check their text against a second channel.
-11. **Public-domain archives** for pre-1930 classics — `archive.org` (fetch the
-    `_djvu.txt` OCR layer of full-view scans), Wikisource, Gallica, official
-    journal back archives. Mark OCR restorations in brackets.
+11. **Public-domain archives** for works published before 1931 — `archive.org`
+    (fetch the `_djvu.txt` OCR layer of full-view scans), Wikisource (de, en, fr),
+    Gallica, and official journal back archives (e.g. `journaldephysique.org`).
+    Check every quote taken from an OCR layer against the rendered page image,
+    character by character. Mark restorations in brackets. Where a mark on the
+    scan leaves a character or a punctuation sign uncertain, paraphrase the
+    sentence in the paper and record the uncertainty here. Endpoints and the full
+    rules: `reference/public-domain.md`.
 12. **Shadow-library mirrors** — permitted once 5–11 have failed, and preferred
     over settling for snippet- or abstract-level verification. See
     `reference/scihub.md` for the conditions.
