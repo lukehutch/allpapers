@@ -48,6 +48,17 @@ First because the full text is already extracted, sectioned and line-numbered, s
 a quote comes back citable as `content.lines#L45-L52` with no parsing at all, and because the
 index is fast.
 
+paperclip is also the skill's **semantic search engine**: besides keyword (BM25)
+search it ranks by embedding similarity over full-text section chunks, so it finds
+papers that describe an idea in different words. Measured 2026-10-04 on arXiv
+with a paraphrase of the Transformer paper that avoids "translation", "attention"
+and "transformer": `--ranking vector` returned ten neural machine translation and
+self-attention papers, while `--ranking bm25` returned papers that merely contain
+"step by step". The default, `--ranking hybrid`, pools keyword and vector
+candidates and reranks them by embedding similarity; on the same query it ranked
+*Attention Is All You Need* itself 9th, which neither pure mode had in its top 10.
+`search.md` has the modes.
+
 ```bash
 paperclip lookup doi 10.1038/nature14539
 paperclip lookup arxiv 1706.03762

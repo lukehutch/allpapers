@@ -14,7 +14,8 @@ the point:
 
     bm25        lexical. Exact terminology, names, gene symbols, an error string.
     vector      semantic. Paraphrase; finds the paper that never uses your words.
-    hybrid      both legs blended. The default, and the right one when unsure.
+    hybrid      keyword and vector candidates, reranked by embedding similarity.
+                The default, and the right one when unsure.
     analogical  the same *method structure* in another field entirely.
 
 `--mode all` runs them concurrently and merges, tagging each hit with the

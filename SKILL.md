@@ -1,6 +1,6 @@
 ---
 name: allpapers
-description: Find and retrieve the full text of scientific papers from paperclip, arXiv LaTeX source, CORE, Unpaywall, OpenAlex, Europe PMC, Google Scholar, Gemini grounded search, field repositories, public-domain archives (archive.org, Wikisource, Gallica) and shadow libraries (LibGen, Sci-Hub, Sci-Net, Anna's Archive, Z-Library) as a last resort. Use when asked to look up a paper, get its full text, search the literature by keyword or by meaning, check what a paper actually says, verify a citation, or build a bibliography. Always prefers parseable text formats over PDF.
+description: Find and retrieve the full text of scientific papers from paperclip (which is also a semantic search engine: embedding-based as well as keyword search over 11.6M full texts), arXiv LaTeX source, CORE, Unpaywall, OpenAlex, Europe PMC, Google Scholar, Gemini grounded search, field repositories, public-domain archives (archive.org, Wikisource, Gallica) and shadow libraries (LibGen, Sci-Hub, Sci-Net, Anna's Archive, Z-Library) as a last resort. Use when asked to look up a paper, get its full text, search the literature by keyword or by meaning, check what a paper actually says, verify a citation, or build a bibliography. Always prefers parseable text formats over PDF.
 ---
 
 # allpapers

@@ -441,7 +441,9 @@ Everything else, in the order rule 1 implies:
 ### The ladder, in short
 
 1. **paperclip** — already-extracted, line-numbered full text. Fastest, and the
-   line numbers make quotes citable as `content.lines#L45-L52`.
+   line numbers make quotes citable as `content.lines#L45-L52`. It is also a
+   semantic search engine: it ranks by embedding similarity as well as by
+   keyword, so it finds papers that describe an idea in other words.
 2. **arXiv LaTeX source** — the best format that exists for anything on arXiv.
 3. **CORE and Unpaywall** — the two large open indices, plus OpenAlex and Europe
    PMC, which answer the same question from different angles.

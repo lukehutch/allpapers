@@ -26,7 +26,8 @@ output says the other 230 existed. Always pass `-n`. `allpapers-search` defaults
 it to 250.
 
 **The default ranking is hybrid, which is not always what you want.** A hybrid
-run blends lexical and vector retrieval, which is a good default and a poor
+run pools keyword and vector candidates (100 of each for `-n` up to 100) and
+reranks the pool by vector similarity, which is a good default and a poor
 specialist. If you need every paper containing a specific gene name, hybrid will
 dilute the lexical hits with semantic near-misses; if you are looking for an idea
 by description, hybrid will drag in papers that merely share vocabulary.
@@ -39,8 +40,18 @@ by description, hybrid will drag in papers that merely share vocabulary.
 |---|---|---|---|
 | `bm25` | `keyword` | literal terms, TF-IDF weighted | gene names, method names, exact strings, boolean queries |
 | `vector` | `semantic` | embedding cosine similarity | a described idea, a paraphrase, "papers like this abstract" |
-| `hybrid` | `hybrid` | both, blended — **the default** | a first pass when you do not know which fits |
+| `hybrid` | `hybrid` | keyword and vector candidates, reranked by embedding similarity — **the default** | a first pass when you do not know which fits |
 | `analogical` | `analogical` | the same structural method in another field | finding transferable methods; the useful hit is usually in a community you would not have searched |
+
+paperclip's own guide (`paperclip skill`) describes hybrid two ways: "the same
+100 keyword and vector candidates" in one place, and "strict lexical candidate
+gate followed by vector reranking" in its options table. The measured behavior
+fits the first. A paraphrase that never says "translation", "attention" or
+"transformer" (`ladder.md`, rung 1) came back under hybrid as ten machine
+translation papers, with *Attention Is All You Need* at #9. The guide also says
+`vector` falls back to the lexical gate when structured filters (year, journal,
+article type and the like) are applied, so a filtered semantic search can miss
+papers an unfiltered one finds.
 
 `--mode all` runs all four and merges them, ranking a paper by how many rankings
 found it. That consensus ordering is the single most useful thing here: a paper

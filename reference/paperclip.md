@@ -5,6 +5,13 @@ bash. **11,624,272 papers** as of 2026-08-25: PMC 8,014,647, arXiv 3,106,926,
 bioRxiv 413,666, medRxiv 89,033. Plus regulatory documents, clinical trials,
 protein records and patents.
 
+It is also a **semantic search engine**. `paperclip search` ranks by keyword
+(`--ranking bm25`), by embedding similarity over full-text section chunks
+(`--ranking vector`), or by pooling both and reranking by embedding similarity
+(`--ranking hybrid`, the default), so a description of an idea finds papers that
+use none of its words. `search.md` has the modes and the
+measured comparison is in `ladder.md`, rung 1.
+
 That figure is from `paperclip sql`. The CLI's own `ls /` labels the same
 directory **"3.4M+ scientific papers"** — a 3.4x disagreement inside one tool's
 output — and labels `trials/` "110K+" where the published corpus description says
