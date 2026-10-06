@@ -56,6 +56,8 @@ that gets committed.
 | **NCBI key** | free | eutils at 10 requests/sec instead of 3. The anonymous limit is enforced and returns HTTP 429 mid-sequence, which reads as a lookup failure |
 | **Semantic Scholar key** | free | Higher rate limits on the identifier-bridge endpoint |
 | **SerpApi key** | 250/month free | Only if Google Scholar blocks and the paper matters |
+| **SciX key** | free, instant | Required for the SciX (formerly NASA ADS) API, the metadata authority for astronomy and pre-DOI physics. Same token as the old ADS API token |
+| **BASE key** | free, reviewed | Required for the BASE API (open repository records worldwide). Optional |
 
 `scripts/allpapers-setup --check`, and `scripts/allpapers-setup` with no
 arguments, print the registration URL for every one of these plus the services

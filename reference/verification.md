@@ -52,7 +52,7 @@ German nouns). The full checklist is in `SKILL.md`; the case-folding mechanics a
 in `reference/bibtex.md`.
 
 **Every entry must be cross-checked against an authoritative index** — Crossref,
-INSPIRE-HEP, NASA ADS, Google Scholar or the publisher's own page. Search by title
+INSPIRE-HEP, SciX (formerly NASA ADS), Google Scholar or the publisher's own page. Search by title
 and/or DOI; if one index blocks automated access, use another. The index entry is
 the authoritative cross-reference. Any disagreement between the `.bib` entry and
 what you verified — from **both** the paper itself and the index — gets flagged
@@ -64,8 +64,9 @@ merges them field by field, and prints every disagreement it had to resolve. The
 merged entry goes in the BibTeX block of the record below, which is the canonical
 copy — the `.bib` file is generated from it. See `reference/bibtex.md` for the
 per-field trust order and the traps it works around.
-For pre-DOI physics, NASA ADS is the authority on old Annalen-style volume
-numbering.
+For pre-DOI physics, SciX (formerly NASA ADS) is the authority on old
+Annalen-style volume numbering; its API needs `scix_api_key` (see
+`other-indices.md`).
 
 ### 3. Supporting quotes
 
@@ -115,8 +116,8 @@ this is the channel-numbered version the verification record refers to.
 
 **B. Metadata authority — before writing any `.bib` entry**
 
-4. **Crossref by DOI** — `curl https://api.crossref.org/works/<doi>`. NASA ADS and
-   INSPIRE-HEP for physics records Crossref lacks.
+4. **Crossref by DOI** — `curl https://api.crossref.org/works/<doi>`. SciX (formerly
+   NASA ADS) and INSPIRE-HEP for physics records Crossref lacks.
 
 **C. Full-text acquisition — work down until one succeeds**
 

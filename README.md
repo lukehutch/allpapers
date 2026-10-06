@@ -272,6 +272,29 @@ Everything works without the optional keys, just less well.
   - *What it buys:* Google Scholar through SerpApi instead of scraping. Only worth
     it if Scholar blocks and the paper matters.
 
+- **`scix_api_key`**
+  - *Used by:* **SciX / NASA ADS:** required by its API, which answers HTTP 401
+    without a token.
+  - *Cost:* free, instant.
+  - *Where to register:* create a login at <https://scixplorer.org/>, then copy
+    the token from <https://scixplorer.org/user/settings/token>. API docs:
+    <https://github.com/adsabs/adsabs-dev-api>.
+  - *What it buys:* SciX/ADS search and records, the metadata authority for
+    astronomy and physics, including pre-DOI papers by bibcode. ADS's website now
+    redirects to SciX, and **the SciX token is the same credential as the old ADS
+    API token**: it works on `api.scixplorer.org` and `api.adsabs.harvard.edu`
+    alike.
+
+- **`base_api_key`**
+  - *Used by:* **BASE** (Bielefeld Academic Search Engine): required by its API,
+    which otherwise answers `Access denied for IP address`.
+  - *Cost:* free, but reviewed by hand — expect a wait.
+  - *Where to register:* <https://www.base-search.net/About/Contact>. The
+    interface guide is
+    <https://www.base-search.net/themes/base/data/download/base_interface.pdf>.
+  - *What it buys:* search over open repository records worldwide. How the key is
+    sent has not been verified here, because the guide sits behind a bot check.
+
 Any setting can also be given as an environment variable: **the setting name in
 upper case** — `CORE_API_KEY`, `GEMINI_API_KEY`, `SERPAPI_KEY` and so on. The one
 exception is `email`, whose variable is `ALLPAPERS_EMAIL` rather than `EMAIL`, to
@@ -771,6 +794,18 @@ and were not verified here.
 - **INSPIRE-HEP**
   - *Key:* none.
   - *Free limit:* no published limit; returns no rate-limit headers.
+  - *Raised by:* —
+
+- **SciX (formerly NASA ADS)**
+  - *Key:* required — `scix_api_key`, the same token as the old ADS API token.
+  - *Free limit:* **5,000 requests/day per endpoint** (`x-ratelimit-limit: 5000`,
+    measured 2026-10-06), reset at midnight UTC.
+  - *Raised by:* — their docs say to write to `adshelp@cfa.harvard.edu` about
+    limits.
+
+- **BASE**
+  - *Key:* required — `base_api_key`, granted on application.
+  - *Free limit:* *(not measured)*.
   - *Raised by:* —
 
 - **Google Scholar**

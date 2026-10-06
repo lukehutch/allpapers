@@ -81,6 +81,28 @@ FIELDS = {
         "https://serpapi.com/users/sign_up  then https://serpapi.com/manage-api-key "
         "(100 free searches/month, then paid)",
     ),
+    "scix_api_key": (
+        False, "SCIX_API_KEY",
+        "SciX / NASA ADS: required by its API (HTTP 401 without one). The same "
+        "token as the old ADS API token; it works on api.scixplorer.org and "
+        "api.adsabs.harvard.edu alike, as 'Authorization: Bearer <token>'",
+        "SciX/ADS search and records — the metadata authority for astronomy and "
+        "physics, including pre-DOI papers by bibcode; 5,000 queries/day per "
+        "endpoint, reset at midnight UTC",
+        "create a login at https://scixplorer.org/ then "
+        "https://scixplorer.org/user/settings/token  (free, instant). API docs: "
+        "https://github.com/adsabs/adsabs-dev-api",
+    ),
+    "base_api_key": (
+        False, "BASE_API_KEY",
+        "BASE (Bielefeld Academic Search Engine): required by its API, which "
+        "otherwise answers 'Access denied for IP address'",
+        "BASE search over open repository records worldwide (how the key is sent "
+        "is in the interface guide, which sits behind a bot check: "
+        "https://www.base-search.net/themes/base/data/download/base_interface.pdf)",
+        "apply at https://www.base-search.net/About/Contact  (free, manually "
+        "reviewed — expect a wait)",
+    ),
 }
 
 # Services that need no key at all, listed so --check answers "what do I still

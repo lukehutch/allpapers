@@ -342,7 +342,8 @@ rest of the ladder has come up empty.
 
 None of these is queried by `allpapers-locate`. Use them on rung 5 of `ladder.md`
 when the paper's field or country points at one and rungs 1–4 found nothing. All
-were measured on 2026-10-04 with the Chrome User-Agent; none needs a key.
+were measured on 2026-10-04 with the Chrome User-Agent. Only SciX and BASE need a
+key; `allpapers-setup` stores both.
 
 **Scriptable:**
 
@@ -357,6 +358,8 @@ were measured on 2026-10-04 with the Chrome User-Agent; none needs a key.
 | J-STAGE | Japanese journals | `https://api.jstage.jst.go.jp/searchapi/do?service=3&article=<words>` | Atom XML with article links |
 | zbMATH Open | mathematics, back to the 19th century | `https://api.zbmath.org/v1/document/_search?search_string=<query>` | records whose `links` point to the digitized copy (EuDML and others) |
 | RePEc / IDEAS | economics working papers | `https://ideas.repec.org/...` pages | HTML with links to the author's copy |
+| SciX / NASA ADS | astronomy and physics, including pre-DOI papers | `curl -H "Authorization: Bearer $SCIX_API_KEY" 'https://api.scixplorer.org/v1/search/query?q=bibcode:1998AJ....116.1009R&fl=bibcode,title,doi'` | JSON records; measured 2026-10-06, HTTP 200 with one hit. `scix_api_key` is required (401 without it) |
+| BASE (Bielefeld) | open repository records worldwide | `https://api.base-search.net/cgi-bin/BaseHttpSearchInterface.fcgi` — needs `base_api_key` | without a key the API answers `Access denied for IP address`. The key's format and how it is sent are not yet verified: the interface guide (`base_interface.pdf`) sits behind a bot check |
 
 **Browser only** — an anti-bot challenge or an IP allow-list stops a script; a
 human can still use them:
@@ -369,11 +372,22 @@ human can still use them:
 | SciELO | Latin American journals | 403 "Establishing a secure connection" |
 | Internet Archive Scholar (`scholar.archive.org`), fatcat | IA's crawl of open-access PDFs, including copies whose original host has gone | "Verify" / "Session Verification" page; `api.fatcat.wiki` timed out |
 | CiteSeerX | computer science PDFs cached from the web | timed out |
-| BASE (Bielefeld) | repository records worldwide | API answers `Access denied for IP address`; it requires registering your IP |
-| NASA ADS | astronomy and physics | API needs a free token (401 without one); `verification.md` already uses it for metadata |
 
 **Shut down:** the Open Access Button / InstantILL API (`api.openaccessbutton.org`,
 `api.oa.works`) answers HTTP 410, "This API has been permanently shut down".
+
+### SciX, formerly NASA ADS
+
+The ADS website (`ui.adsabs.harvard.edu`) announces that from 16 November all ADS
+users will be sent to SciX, the Science Explorer at <https://scixplorer.org/>,
+which Harvard still runs. Accounts and libraries are already available there, and **the SciX API token is the same
+credential as the old ADS API token**. Both API hosts accept it, measured
+2026-10-06: `api.scixplorer.org` and `api.adsabs.harvard.edu` each returned HTTP
+200 and the same record for bibcode `1998AJ....116.1009R`. The token goes in an
+`Authorization: Bearer` header. The limit is 5,000 requests a day per endpoint
+(`x-ratelimit-limit: 5000`), reset at midnight UTC. Get the token by creating a
+login at scixplorer.org, then at <https://scixplorer.org/user/settings/token>.
+The API is documented at <https://github.com/adsabs/adsabs-dev-api>.
 
 ## Wayback Machine — when the free copy's link is dead
 
