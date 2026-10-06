@@ -123,13 +123,15 @@ silently, answering with a `dblp: error 500` HTML page after about a dozen quick
 requests — not the HTTP 429 its own FAQ documents — so query it a couple of times
 per paper and no more, and leave at least 4 seconds between requests, which is
 the `Crawl-delay` in its `robots.txt`. Anything bulk belongs in its XML dump, not
-in the API. `dblp.md`.
+in the API. On 2026-10-06 the search API answered only with
+a bot-check page on all three hosts, so a dblp failure is currently expected and
+says nothing about the paper; its SPARQL endpoint still answers. `dblp.md`.
 
 **OpenAlex now hosts full text of its own**, which makes this rung better than it
 used to be. A work object carries `has_content` and `content_urls`, and where
 `has_content.grobid_xml` is true you can download a GROBID TEI XML parse of the
 paper — structured text, so it outranks any PDF beside it. Counts measured against
-the live API on 2026-08-25: **48,978,284** works with GROBID XML and **52,396,004**
+the live API on 2026-10-06: **50,848,451** works with GROBID XML and **54,048,880**
 with a cached PDF. Downloads need a free API key and cost $0.01 per file against
 the account's daily budget; without a key `content.openalex.org` returns HTTP 401.
 GROBID does no OCR, so a scanned paper yields nothing, and its header and reference

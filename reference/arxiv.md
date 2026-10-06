@@ -1,7 +1,8 @@
 # arXiv
 
-arXiv holds 3,146,378 cumulative submissions through 2026-08, counted by summing
-`https://arxiv.org/stats/get_monthly_submissions` (checked 2026-08-25). It matters
+arXiv holds 3,199,882 cumulative submissions through 2026-10 (October partial),
+counted by summing `https://arxiv.org/stats/get_monthly_submissions` (checked
+2026-10-06). It matters
 out of proportion to its size because it serves the **submitted source**, which for
 almost everything is LaTeX.
 

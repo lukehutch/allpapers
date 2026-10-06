@@ -44,7 +44,7 @@ FIELDS = {
     "openalex_api_key": (
         False, "OPENALEX_API_KEY",
         "OpenAlex: optional; required for its cached full text",
-        "OpenAlex's cached full text (GROBID TEI XML for ~49M works, $0.01/file) "
+        "OpenAlex's cached full text (GROBID TEI XML for ~51M works, $0.01/file) "
         "and a $1/day metadata budget instead of the anonymous $0.10/day",
         "https://openalex.org/users  (free, instant)",
     ),

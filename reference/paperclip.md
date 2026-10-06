@@ -1,9 +1,11 @@
 # paperclip
 
 A hosted, read-only virtual filesystem over full-text literature, driven from
-bash. **11,624,272 papers** as of 2026-08-25: PMC 8,014,647, arXiv 3,106,926,
-bioRxiv 413,666, medRxiv 89,033. Plus regulatory documents, clinical trials,
-protein records and patents.
+bash. **11,688,638 papers**: arXiv 3,154,986, bioRxiv 426,098 and medRxiv 92,907
+counted 2026-10-06, plus PMC 8,014,647 counted 2026-08-25 (the PMC count now
+times out; see the defects below). Plus regulatory documents (US FDA 200k+),
+clinical trials (1.08M+ across registries), 574K+ protein records and patents,
+by the labels in `paperclip skill`.
 
 It is also a **semantic search engine**. `paperclip search` ranks by keyword
 (`--ranking bm25`), by embedding similarity over full-text section chunks
@@ -276,11 +278,16 @@ print-era paper there is no text route at all: read the PDF visually.
 
   The file that second command produces ends with the banner's own suggestions
   instead of the end of the paper.
-- **`SELECT COUNT(*)` returns one row per backend, not a total.** `SELECT COUNT(*)
-  FROM documents` printed three rows — 502699, 3106926, 8014647 — which must be
-  summed by hand. `GROUP BY source` gives the four-row breakdown and was stable
-  across four consecutive runs; an earlier run on this build omitted the arXiv
-  backend, which has not reproduced since.
+- **`SELECT COUNT(*)` returns one row per backend, not a total, and backends go
+  missing.** On 2026-08-25 `SELECT COUNT(*) FROM documents` printed three rows —
+  502699, 3106926, 8014647 — which must be summed by hand, and `GROUP BY source`
+  gave the four-row breakdown. On 2026-10-06 the same `COUNT(*)` printed one row,
+  519005 (bioRxiv plus medRxiv only), and `GROUP BY source` returned three rows
+  with no PMC, twice. Counting PMC on its own (`paperclip sql -s pmc "SELECT
+  COUNT(*) FROM documents"`) failed with `canceling statement due to statement
+  timeout` after 15 s. The trailer line, e.g. `[bioRxiv (2 rows) + arXiv (1
+  rows)]`, names the backends that answered: **check it before trusting any
+  count.**
 - **`-n` defaults to 20, and `--help` says 100.** Re-measured on 0.7.38: a bare
   search returned exactly 20, `-n 250` returned exactly 250. Nothing warns that
   the rest existed, so **always pass `-n 250`** for any sweep.

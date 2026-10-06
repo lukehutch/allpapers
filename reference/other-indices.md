@@ -50,12 +50,12 @@ content_urls: {"pdf":        "https://content.openalex.org/works/W3038568908.pdf
                "grobid_xml": "https://content.openalex.org/works/W3038568908.grobid-xml"}
 ```
 
-Measured corpus coverage:
+Measured corpus coverage, 2026-10-06 (2026-08-25: 52,396,004 PDFs, 48,978,284 XML):
 
 | Filter | Works |
 |---|---|
-| `has_content.pdf:true` | 52,396,004 |
-| `has_content.grobid_xml:true` | 48,978,284 |
+| `has_content.pdf:true` | 54,048,880 |
+| `has_content.grobid_xml:true` | 50,848,451 |
 
 The GROBID TEI XML is a structured parse — headers, sections, paragraphs,
 references as markup — so it sits just below arXiv LaTeX in the format order and
@@ -134,13 +134,21 @@ similarity-checking` — a Similarity Check deposit, which is for plagiarism
 services and not generally fetchable. Do not report those as reader-accessible
 copies.
 
-185,829,151 records indexed. Free, no key.
+187,328,590 records indexed (2026-10-06). Free, no key.
 
-**Rate limit, measured 2026-08-26 from the response headers**: `x-rate-limit-limit:
-10` with `x-rate-limit-interval: 1s` — ten requests a second. Putting your address
-in a `mailto=` parameter or in the `User-Agent` lands you in the polite pool, which
-the response confirms with `x-api-pool: polite-single`; without it the same header
-reads `public`. Use the `mailto=` parameter: the User-Agent is a Chrome string
+**Rate limit, measured 2026-10-06 from the response headers**
+(`x-rate-limit-limit`, `x-rate-limit-interval: 1s`, `x-concurrency-limit`,
+`x-api-pool`). It now depends on the kind of request:
+
+| Request | Public pool | Polite pool |
+|---|---|---|
+| one record, `/works/<doi>` (`*-single`) | 5/s, 1 at a time | 10/s, 3 at a time |
+| list or search, `/works?…` (`*-array`) | 1/s, 1 at a time | 3/s, 3 at a time |
+
+On 2026-08-26 the single-record polite limit, 10/s, was the only one recorded.
+Putting your address in a `mailto=` parameter or in the `User-Agent` lands you in
+the polite pool, which the response confirms with `x-api-pool: polite-single` or
+`polite-array`; without it the header reads `public-single` or `public-array`. Use the `mailto=` parameter: the User-Agent is a Chrome string
 here (`SKILL.md`), so the parameter is what keeps us in the polite pool. A paid Metadata Plus tier exists and was not measured.
 
 **Crossref lower-cases the DOI in its response.** The registered casing has to be
@@ -158,6 +166,10 @@ tagged with `availability` ("Open access" / "Subscription required"),
 `availabilityCode` (`OA` / `S`), `documentStyle` (`pdf`, `html`, `doi`) and
 `site` (`Europe_PMC`, `Unpaywall`, `DOI`). Also `isOpenAccess`, `inEPMC`,
 `hasTextMinedTerms`, `pmid`, `pmcid`.
+
+Size, 2026-10-06 (`query=*`, `HAS_FT:Y`, `OPEN_ACCESS:Y` → `hitCount`):
+49,002,586 records, 12,401,827 with full text, 8,309,429 open access. No
+published rate limit and no rate-limit headers.
 
 Full text, when `inEPMC` is `Y`:
 
@@ -193,8 +205,13 @@ between DOI, PubMed, PubMedCentral, MAG, ArXiv and its own CorpusId — which
 makes it a useful identifier bridge when NCBI has no record. Abstracts are
 available too, though some AIP and IOP abstracts are elided by the publisher.
 
-Works without a key at a low rate; a free key raises the limit
-(<https://www.semanticscholar.org/product/api#api-key>).
+Size, 2026-10-06: 238,607,377 papers, the `total` of a bulk search
+(`/graph/v1/paper/search/bulk`); its product page says 214 million.
+
+Works without a key from a pool of 1,000 requests/second shared by every
+unauthenticated user *(their docs)*, so a cold call can return 429. A free key
+(<https://www.semanticscholar.org/product/api#api-key>) gives you your own pool,
+which starts at 1 request/second *(their docs)*.
 
 ### Two traps, both measured 2026-08-26
 
@@ -327,7 +344,8 @@ calls, and retry a 429 rather than reading it as a failure.
 ## DOAJ
 
 `https://doaj.org/api/search/articles/doi:{doi}` — returns
-`{total, page, pageSize, timestamp, query, results, last}`. 13,487,985 articles,
+`{total, page, pageSize, timestamp, query, results, last}`. 13,757,838 articles
+in 23,579 journals (2026-10-06),
 all from vetted fully-open-access journals, so a DOAJ hit is a strong signal that
 a legitimate free copy exists. Free, no key.
 
@@ -336,30 +354,37 @@ a legitimate free copy exists. Free, no key.
 `https://api.openaire.eu/search/publications?doi={doi}&format=json` — responds
 200 `application/json`. Aggregates European repository deposits, and sometimes
 holds an institutional copy the other indices missed. Worth a call only when the
-rest of the ladder has come up empty.
+rest of the ladder has come up empty. The newer Graph API
+(`https://api.openaire.eu/graph/v1/researchProducts`) counted 390,210,889
+research products, 238,677,629 of them publications, on 2026-10-06. Its docs give
+60 requests/hour without a token and 7,200/hour with one; an unauthenticated call
+nonetheless returned `x-ratelimit-limit: 7199`. Plan for 60.
 
 ## Field and regional repositories
 
 None of these is queried by `allpapers-locate`. Use them on rung 5 of `ladder.md`
 when the paper's field or country points at one and rungs 1–4 found nothing. All
-were measured on 2026-10-04 with the Chrome User-Agent. Only SciX and BASE need a
+were measured on 2026-10-04 with the Chrome User-Agent; sizes and limits on
+2026-10-06, with the queries listed in the README under "How many papers are
+there?". "No published limit" means the service sends no rate-limit headers and
+its documentation states none. Only SciX and BASE need a
 key; `allpapers-setup` stores both.
 
 **Scriptable:**
 
-| Source | Covers | Call | What comes back |
-|---|---|---|---|
-| HAL | French institutional deposits, all fields | `https://api.archives-ouvertes.fr/search/?q=doiId_s:"<doi>"&fl=halId_s,title_s,fileMain_s` | `fileMain_s` is the PDF; the LIGO detection paper (`10.1103/PhysRevLett.116.061102`) came back as `in2p3-01273200` with its PDF |
-| bioRxiv / medRxiv | life-science preprints | `https://api.biorxiv.org/details/biorxiv/<doi>` (`medrxiv` for the other) | one row per version, with a `jatsxml` URL and `published`, the journal DOI or `NA`. paperclip already mirrors these servers; use the API for the version history and the journal DOI |
-| OSF Preprints | PsyArXiv, SocArXiv and other community preprint servers | `https://api.osf.io/v2/preprints/?filter[title]=<words>` | JSON:API records with a `primary_file` relationship |
-| Zenodo | datasets, software, reports, some papers | `https://zenodo.org/api/records?q=doi:"<doi>"` | records with their files |
-| OSTI | US Department of Energy reports and papers | `https://www.osti.gov/api/v1/records?title=<words>` | records with a `fulltext` link where one exists |
-| ACL Anthology | computational linguistics | `https://aclanthology.org/<id>.bib`, `.pdf` | the canonical BibTeX and PDF |
-| J-STAGE | Japanese journals | `https://api.jstage.jst.go.jp/searchapi/do?service=3&article=<words>` | Atom XML with article links |
-| zbMATH Open | mathematics, back to the 19th century | `https://api.zbmath.org/v1/document/_search?search_string=<query>` | records whose `links` point to the digitized copy (EuDML and others) |
-| RePEc / IDEAS | economics working papers | `https://ideas.repec.org/...` pages | HTML with links to the author's copy |
-| SciX / NASA ADS | astronomy and physics, including pre-DOI papers | `curl -H "Authorization: Bearer $SCIX_API_KEY" 'https://api.scixplorer.org/v1/search/query?q=bibcode:1998AJ....116.1009R&fl=bibcode,title,doi'` | JSON records; measured 2026-10-06, HTTP 200 with one hit. `scix_api_key` is required (401 without it) |
-| BASE (Bielefeld) | open repository records worldwide | `https://api.base-search.net/cgi-bin/BaseHttpSearchInterface.fcgi?func=PerformSearch&query=dcdoi:<doi>&format=json&apikey=$BASE_API_KEY` | Solr records with `dclink`, `dcdoi` and `dcoa` (1 = open access). `base_api_key` is required; see the BASE section below |
+| Source | Covers | Size (2026-10-06) and limit | Call | What comes back |
+|---|---|---|---|---|
+| HAL | French institutional deposits, all fields | 4,685,553 records, 1,804,987 with a file; no published limit | `https://api.archives-ouvertes.fr/search/?q=doiId_s:"<doi>"&fl=halId_s,title_s,fileMain_s` | `fileMain_s` is the PDF; the LIGO detection paper (`10.1103/PhysRevLett.116.061102`) came back as `in2p3-01273200` with its PDF |
+| bioRxiv / medRxiv | life-science preprints | 353,342 + 90,607 papers (486,141 + 112,360 versions); no published limit | `https://api.biorxiv.org/details/biorxiv/<doi>` (`medrxiv` for the other) | one row per version, with a `jatsxml` URL and `published`, the journal DOI or `NA`. paperclip already mirrors these servers; use the API for the version history and the journal DOI |
+| OSF Preprints | PsyArXiv, SocArXiv and other community preprint servers | 203,028; no published limit | `https://api.osf.io/v2/preprints/?filter[title]=<words>` | JSON:API records with a `primary_file` relationship |
+| Zenodo | datasets, software, reports, some papers | 7,421,011 records, 4,883,931 publications; search 30/min (`x-ratelimit-limit`) | `https://zenodo.org/api/records?q=doi:"<doi>"` | records with their files |
+| OSTI | US Department of Energy reports and papers | 4,886,033 (`X-Total-Count`); no published limit | `https://www.osti.gov/api/v1/records?title=<words>` | records with a `fulltext` link where one exists |
+| ACL Anthology | computational linguistics | 131,647 papers, 534 venues (front page) | `https://aclanthology.org/<id>.bib`, `.pdf` | the canonical BibTeX and PDF |
+| J-STAGE | Japanese journals | 6,078,278 articles, 4,502 journals (front page); no published limit | `https://api.jstage.jst.go.jp/searchapi/do?service=3&article=<words>` | Atom XML with article links |
+| zbMATH Open | mathematics, back to the 19th century | 5,197,308; no published limit | `https://api.zbmath.org/v1/document/_search?search_string=<query>` | records whose `links` point to the digitized copy (EuDML and others) |
+| RePEc / IDEAS | economics working papers | >5,500,000 items (front page) | `https://ideas.repec.org/...` pages | HTML with links to the author's copy |
+| SciX / NASA ADS | astronomy and physics, including pre-DOI papers | 37,653,393; 5,000/day per endpoint | `curl -H "Authorization: Bearer $SCIX_API_KEY" 'https://api.scixplorer.org/v1/search/query?q=bibcode:1998AJ....116.1009R&fl=bibcode,title,doi'` | JSON records; measured 2026-10-06, HTTP 200 with one hit. `scix_api_key` is required (401 without it) |
+| BASE (Bielefeld) | open repository records worldwide | ~470,000,000 *(their docs)*; 1 request/s | `https://api.base-search.net/cgi-bin/BaseHttpSearchInterface.fcgi?func=PerformSearch&query=dcdoi:<doi>&format=json&apikey=$BASE_API_KEY` | Solr records with `dclink`, `dcdoi` and `dcoa` (1 = open access). `base_api_key` is required; see the BASE section below |
 
 **Browser only** — an anti-bot challenge or an IP allow-list stops a script; a
 human can still use them:
@@ -441,3 +466,8 @@ without the Wayback toolbar, and follow redirects (`curl -L`): measured,
 `web/20180130182143id_/https://arxiv.org/pdf/1706.03762.pdf`, a different capture
 date. Record the final snapshot URL, not the one requested, and confirm the file's
 identity against the metadata as for any rung-5 find.
+
+Size: "more than 1 trillion web pages" (front page, 2026-10-06). There is no
+published rate limit and no rate-limit header, but on 2026-10-06 the site returned
+HTTP 429 twice, so space requests a few seconds apart and treat a 429 as "retry
+later", not as "no snapshot".

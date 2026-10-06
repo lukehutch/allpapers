@@ -1,8 +1,8 @@
 # CORE
 
 CORE aggregates open-access deposits from repositories and journals worldwide:
-**259,057,483 works** (`api.core.ac.uk/v3/search/works/?q=*` → `totalHits`, read
-2026-08-25). That counts deposits, not distinct papers — the same article appears
+**335,431,834 works** (`api.core.ac.uk/v3/search/works/?q=*` → `totalHits`, read
+2026-10-06; 259,057,483 on 2026-08-25). That counts deposits, not distinct papers — the same article appears
 once per repository holding it, which is why a single DOI returns several records.
 
 Its distinctive value is that it sometimes carries **extracted full text** in the

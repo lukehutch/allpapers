@@ -200,7 +200,7 @@ email                     : set (required)
                             register: no registration — any address you own. https://unpaywall.org/products/api documents the requirement
 openalex_api_key          : MISSING (optional)
                             used by: OpenAlex: optional; required for its cached full text
-                            unlocks: OpenAlex's cached full text (GROBID TEI XML for ~49M works, $0.01/file) ...
+                            unlocks: OpenAlex's cached full text (GROBID TEI XML for ~51M works, $0.01/file) ...
                             register: https://openalex.org/users  (free, instant)
 ...
 No key or registration needed for:
@@ -237,7 +237,7 @@ Everything works without the optional keys, just less well.
   - *Used by:* **OpenAlex:** optional; required for its cached full text.
   - *Cost:* free, instant.
   - *Where to register:* <https://openalex.org/users>
-  - *What it buys:* OpenAlex's cached GROBID TEI XML — ~49M works, $0.01/file —
+  - *What it buys:* OpenAlex's cached GROBID TEI XML — ~51M works, $0.01/file —
     and a $1/day metadata budget instead of the anonymous $0.10/day.
 
 - **`gemini_api_key`**
@@ -357,7 +357,7 @@ Eight tools plus a set of reference documents:
 | `scripts/allpapers-install` | Link the checkout into the skills directory of every agent CLI on this machine, and re-check it later — `--check`, `--uninstall`, `--remove-superseded` |
 | `scripts/allpapers-setup` | First-run credential setup and status check. Asks once, stores in `~/.config/allpapers/config.json`. |
 | `scripts/allpapers-locate` | Queries paperclip, arXiv, Unpaywall, OpenAlex, CORE and Europe PMC **concurrently** for one paper and prints every free full-text location, ranked most-parseable first. |
-| `scripts/allpapers-search` | Keyword (BM25), semantic (vector), hybrid and analogical search over paperclip's 11.6M full texts, optionally alongside Gemini grounded web search — through the Gemini API or, with `--gemini-backend agy`, through the Antigravity CLI and no API key. |
+| `scripts/allpapers-search` | Keyword (BM25), semantic (vector), hybrid and analogical search over paperclip's 11.7M full texts, optionally alongside Gemini grounded web search — through the Gemini API or, with `--gemini-backend agy`, through the Antigravity CLI and no API key. |
 | `scripts/arxiv-source` | Downloads an arXiv paper's submitted source into a `mktemp` directory and unpacks it, handling all three payload shapes arXiv serves. |
 | `scripts/allpapers-bibtex` | Builds one composite BibTeX entry by merging INSPIRE-HEP, Crossref, DataCite, arXiv, PubMed and Scholar field by field, then normalizing it. |
 | `scripts/allpapers-fetch` | Fetches source *and* PDF into `./verification/source/<citationKey>/` in the current directory, and writes the `./verification/bib.md` record — staged first, promoted or rejected after you have read the paper. `--into` moves that directory, `--no-record` suppresses it entirely. |
@@ -659,41 +659,94 @@ and 3 without re-running anything.
 
 ## How many papers are there?
 
-Every number below was read from the service's own API or site on **2026-08-25**
-— except the three shadow-library rows, measured **2026-08-26** — not from a
-marketing page. The query used is given so each can be re-checked.
+Every number below was read from the service's own API or site on **2026-10-06**,
+not from a marketing page, unless the last column says otherwise. The query used is
+given so each can be re-checked. Rows marked *(their docs)* or *(Wikipedia)* could
+not be counted live; the reason is given.
+
+**Indices and aggregators**
+
+| Service | Records | What that counts, and the topics covered | How it was measured |
+|---:|---:|---|---|
+| BASE | ~470,000,000 | records from ~12,100 repositories, all fields | *(their docs)*, interface guide v1.29; no key here to count live |
+| OpenAIRE Graph | 390,210,889 | research products, all fields; 238,677,629 are `type=publication` | `api.openaire.eu/graph/v1/researchProducts?pageSize=1` → `header.numFound` |
+| CORE | 335,431,834 | repository and journal deposits, all fields; one paper can appear once per repository | `api.core.ac.uk/v3/search/works/?q=*` → `totalHits` |
+| OpenAlex | 332,066,364 | scholarly works, all fields | `api.openalex.org/works` → `meta.count` |
+| Semantic Scholar | 238,607,377 | papers, all fields (its product page says 214M) | `/graph/v1/paper/search/bulk` → `total` |
+| Crossref | 187,328,590 | registered DOI records, all fields | `api.crossref.org/works?rows=0` → `message.total-results` |
+| DataCite | 137,740,268 | DOIs, mostly datasets and software; 15,736,632 are `resource-type-id=text` | `api.datacite.org/dois?page[size]=0` → `meta.total` |
+| Unpaywall | ~120,000,000 | Crossref DOIs tracked for OA status | "Search all 120M of our articles", unpaywall.org; not re-measured since 2026-08-25 |
+| Europe PMC | 49,002,586 | life sciences; 12,401,827 with full text (`HAS_FT:Y`), 8,309,429 open access | `rest/search?query=*&format=json&pageSize=1` → `hitCount` |
+| PubMed | 41,245,614 | biomedical citations (abstracts, not full text) | eutils `esearch db=pubmed term=all[sb]` |
+| SciX (formerly ADS) | 37,653,393 | astronomy 3,185,639, physics 19,507,000, earth and planetary science; 23,804,225 refereed | `/v1/search/query?q=*:*&rows=0` → `numFound`, with `collection:` filters |
+| DOAJ | 13,757,838 | articles in 23,579 open-access journals, all fields | `doaj.org/api/search/articles/*` → `total` |
+| PMC | 12,674,787 | full-text biomedical articles | eutils `esearch db=pmc term=all[sb]` |
+| **paperclip** | **11,688,638** | **full text already extracted and line-numbered**: biomedicine, arXiv | `paperclip sql` (see note below) |
+| PMC open-access subset | 8,282,749 | the redistributable part of PMC | eutils `esearch db=pmc term="open access"[filter]` |
+| dblp | 8,790,515 | computer science publications; metadata only | SPARQL `sparql.dblp.org`, count of `dblp:Publication` (the search API is blocked, see `reference/dblp.md`) |
+| zbMATH Open | 5,197,308 | mathematics, 1800 onward; reviews and metadata | `api.zbmath.org/v1/document/_search?search_string=py:1800-2026` → `status.nr_total_results` |
+| HAL | 4,685,553 | French repository, all fields; 1,804,987 with a file | `api.archives-ouvertes.fr/search/?q=*:*&rows=0` → `numFound`; `fq=submitType_s:file` |
+| INSPIRE-HEP | 1,890,632 | high-energy physics literature | `inspirehep.net/api/literature?size=1` → `hits.total` |
+
+**Repositories and preprint servers**
+
+| Service | Records | What that counts, and the topics covered | How it was measured |
+|---:|---:|---|---|
+| Zenodo | 7,421,011 | all records; 4,883,931 are `type=publication` | `zenodo.org/api/records?size=1` → `hits.total` |
+| J-STAGE | 6,078,278 | Japanese journal articles, 5,863,689 free; 4,502 journals in 25 subject areas | front page of `www.jstage.jst.go.jp` |
+| RePEc / IDEAS | >5,500,000 | economics items, >5,000,000 downloadable, from >2,400 archives | front page of `ideas.repec.org` |
+| OSTI | 4,886,033 | US Department of Energy research results | `osti.gov/api/v1/records?rows=1` → `X-Total-Count` header |
+| arXiv | 3,199,882 | cumulative submissions through 2026-10 (October partial) | `arxiv.org/stats/get_monthly_submissions`, summed |
+| bioRxiv | 353,342 | new biology preprints (486,141 counting every version) | `api.biorxiv.org/details/biorxiv/2013-01-01/2026-10-06/0` → `messages[0]` |
+| OSF Preprints | 203,028 | preprints from OSF's hosted servers, mostly social and behavioral science | `api.osf.io/v2/preprints/` → `links.meta.total` |
+| ACL Anthology | 131,647 | computational linguistics papers in 3,509 volumes from 534 venues | front page of `aclanthology.org` |
+| medRxiv | 90,607 | new medical preprints (112,360 counting every version) | `api.biorxiv.org/details/medrxiv/...` → `messages[0]` |
+
+**Archives for old and public-domain material**
+
+| Service | Records | What that counts, and the topics covered | How it was measured |
+|---:|---:|---|---|
+| Wayback Machine | >1 trillion | archived web pages | front page of `web.archive.org` |
+| archive.org | 52,566,836 | items of `mediatype:texts`; 1,973,221 in `collection:sim_microfilm` (periodicals) | `archive.org/advancedsearch.php?q=mediatype:texts&rows=0&output=json` → `numFound` |
+| HathiTrust | >18,000,000 | volumes, 6.7M public domain in the US | *(Wikipedia)*, as of September 2024; the site returned 403 |
+| Gallica | >10,000,000 | documents, incl. 862,918 books and 5,804,805 journal issues | *(Wikipedia, French)*, as of May 2025; SRU returned 403 twice |
+| Wikisource | 1,133,084 (en) | content pages: en 1,133,084, fr 717,777, de 655,542 | `api.php?action=query&meta=siteinfo&siprop=statistics` → `articles` |
+| EuDML | 271,792 | European mathematics items in 14 collections | front page of `eudml.org` |
+| numdam | 75,599 | French mathematics articles in 120 journals, plus 706 books and 416 theses | front page of `www.numdam.org` |
+| Biodiversity Heritage Library | >59,000,000 pages | hundreds of thousands of volumes of natural-history literature | *(Wikipedia)*; the site returned 403 |
+
+**Shadow libraries** (verification only; see rung 6)
 
 | Service | Records | What that counts | How it was measured |
 |---:|---:|---|---|
-| OpenAlex | 322,042,936 | all scholarly works | `api.openalex.org/works` → `meta.count` |
-| CORE | 259,057,483 | works aggregated from repositories and journals | `api.core.ac.uk/v3/search/works/?q=*` → `totalHits` |
-| Crossref | 185,829,151 | registered DOI records | `api.crossref.org/works?rows=0` → `message.total-results` |
-| Unpaywall | ~120,000,000 | DOI records tracked for OA status | "Search all 120M of our articles" — unpaywall.org's own site bundle |
-| PubMed | 41,056,331 | biomedical citations (abstracts, not full text) | eutils `esearch db=pubmed` |
-| DOAJ | 13,487,985 | articles in indexed open-access journals | `doaj.org/api/search/articles` → `total` |
-| PMC | 12,547,390 | full-text biomedical articles | eutils `esearch db=pmc term=all[sb]` |
-| **paperclip** | **11,624,272** | **full text already extracted and line-numbered** | `paperclip sql` (see note below) |
-| PMC open-access subset | 8,171,125 | the redistributable part of PMC | eutils `esearch term="open access"[filter]` |
-| arXiv | 3,146,378 | cumulative submissions through 2026-08 | `arxiv.org/stats/get_monthly_submissions`, summed |
-| Anna's Archive | 157,010,964 | papers (plus 71,400,751 books) | Wikipedia, 2026-08-20 — the service's own stats page is a JS bundle |
-| Sci-Hub | 84,794,279 | "papers in Sci-Hub library" | front page of `sci-hub.ee`, 2026-08-26 |
-| LibGen | *unmeasured* | — | no count is exposed on the front page or through `json.php` |
+| Anna's Archive | 239,545,528 | papers (plus 71,996,952 books) | *(Wikipedia)*, as of 2026-10-01; the service's own stats page is a JS bundle |
+| welib / Z-Library | 98,551,629 | academic papers ("43 million books, 98 million papers") | front page of `welib.org` |
+| LibGen | 90,065,252 | scimag files (84.84 TB), plus 8,480,486 non-fiction books | `libgen.li/stat.php`, updated 2026-10-06 |
+| Sci-Hub | 84,794,279 | "papers in Sci-Hub library", unchanged since 2026-08-26 | front page of `sci-hub.ee` |
+| Sci-Net | — | papers members uploaded on request | no count is published |
 
-**Open-access subtotals**, also live from OpenAlex: 121,719,172 works are
-`is_oa:true`, and 47,547,905 have `has_fulltext:true`. So of ~322M known works,
-roughly 38% are open access in some form and about 15% have machine-readable full
+**Not measured:** Google Scholar publishes no size. Gusenbauer estimated 389
+million records from query hit counts (*Scientometrics*, 2019,
+doi:10.1007/s11192-018-2958-5; checked against the abstract). The ladder uses it as
+a search engine, not a corpus.
+
+**Open-access subtotals**, also live from OpenAlex: 130,865,959 works are
+`is_oa:true`, and 54,051,297 have `has_fulltext:true`. So of ~332M known works,
+roughly 39% are open access in some form and about 16% have machine-readable full
 text anywhere. That gap is the reason the ladder exists.
 
-**OpenAlex now stores full text itself**, which is new and changes the ladder.
-Counted the same way on the same day: **48,978,284** works have a cached GROBID TEI
-XML parse (`has_content.grobid_xml:true`) and **52,396,004** have a cached PDF
+**OpenAlex stores full text itself.** Counted the same way on the same day:
+**50,848,451** works have a cached GROBID TEI XML parse
+(`has_content.grobid_xml:true`) and **54,048,880** have a cached PDF
 (`has_content.pdf:true`). The XML is structured text — sections, paragraphs,
 references — so it ranks above any PDF. Downloading either needs a free API key and
 costs $0.01 per file against the account's daily budget.
 
-paperclip's 11,624,272 is the sum of its three backends — PMC 8,014,647,
-arXiv 3,106,926, and bioRxiv+medRxiv 502,699 (413,666 + 89,033). It has to be
-summed by hand: see the defect note below.
+paperclip's 11,688,638 is the sum of four backends: arXiv 3,154,986, bioRxiv
+426,098 and medRxiv 92,907 measured 2026-10-06, plus PMC 8,014,647 from
+2026-08-25. PMC could not be re-counted: `paperclip sql -s pmc "SELECT COUNT(*)
+FROM documents"` now hits the service's 15-second statement timeout, and
+`GROUP BY source` silently leaves the PMC backend out. See the defect note below.
 
 ### The overlap is large, and it is not incidental
 
@@ -701,29 +754,30 @@ These are not 900M distinct papers. The indices are layered on each other:
 
 - **Crossref is the spine.** Unpaywall is built directly on it — it takes Crossref
   DOIs and asks, for each one, where a free copy lives. So Unpaywall's ~120M is a
-  subset of Crossref's 186M, not an addition to it.
+  subset of Crossref's 187M, not an addition to it.
 - **OpenAlex is a superset of Crossref**, adding records from PubMed, arXiv,
   institutional repositories and elsewhere that never got a Crossref DOI. It is
   run by the same organization as Unpaywall and carries the same OA data.
 - **CORE aggregates repositories**, so the same paper appears once per repository
-  that holds it. Its 259M counts deposits, not distinct papers, which is why CORE
+  that holds it. Its 335M counts deposits, not distinct papers, which is why CORE
   returns several records for one DOI.
 - **paperclip re-indexes PMC, arXiv, bioRxiv and medRxiv**, all of which are
   already inside OpenAlex and CORE. Its value is not corpus size but that the full
   text is already extracted, sectioned and line-numbered.
-- **arXiv sits inside all of them**, and paperclip holds 3,106,926 of arXiv's
-  3,146,378 submissions — about 98.7%.
+- **arXiv sits inside all of them**, and paperclip holds 3,154,986 of arXiv's
+  3,199,882 submissions — about 98.6%.
 
-A useful way to read the table: OpenAlex's 322M is close to the real number of
-distinct known works, 121.7M of those are open in some form, and everything else
+A useful way to read the table: OpenAlex's 332M is close to the real number of
+distinct known works, 130.9M of those are open in some form, and everything else
 in the table is a differently-shaped view of that same population. Querying
 several indices is still worth it, because they disagree about *where* the free
 copy is, and one will often know a repository copy the others have missed.
 
 ## Keys, quotas and rate limits
 
-Every *free limit* below was **measured live on 2026-08-26** from
-the service's own response headers unless it is marked otherwise. Values marked
+Every *free limit* below was **measured live on 2026-08-26**, and re-checked and
+extended on **2026-10-06**, from the service's own response headers unless it is
+marked otherwise. Values marked
 *(their docs)* come from the service's published terms because the service returns
 no rate-limit headers; values marked *(not measured)* are recorded for completeness
 and were not verified here.
@@ -731,16 +785,25 @@ and were not verified here.
 - **paperclip**
   - *Key:* browser OAuth login; `PAPERCLIP_API_KEY` or `--api-key` for
     non-interactive use.
-  - *Free limit:* a free-tier usage cap.
+  - *Free limit:* a free-tier usage cap; no number is published, and its guide
+    (`paperclip skill`) states none. `paperclip sql` statements are cancelled
+    after 15 seconds (measured 2026-10-06).
   - *Raised by:* an API key — <https://paperclip.gxl.ai/keys>
 
 - **Crossref**
   - *Key:* none.
-  - *Free limit:* **10 requests/second** (`x-rate-limit-limit: 10`,
-    `x-rate-limit-interval: 1s`).
+  - *Free limit:* depends on the request type and the pool, read from
+    `x-rate-limit-limit`, `x-concurrency-limit` and `x-api-pool` on 2026-10-06.
+    The 10/s recorded on 2026-08-26 now applies only to polite single-record
+    lookups:
+
+    | Request | Public pool | Polite pool (`mailto=`) |
+    |---|---|---|
+    | one record, `/works/<doi>` | 5/s, 1 at a time | 10/s, 3 at a time |
+    | list or search, `/works?…` | 1/s, 1 at a time | 3/s, 3 at a time |
+
   - *Raised by:* a `mailto:` in the User-Agent or the query, which puts you in the
-    polite pool — confirmed by `x-api-pool: polite-single`. A paid Metadata Plus
-    tier exists *(not measured)*.
+    polite pool. A paid Metadata Plus tier exists *(not measured)*.
 
 - **OpenAlex**
   - *Key:* none needed, but a free one is worth having.
@@ -766,7 +829,8 @@ and were not verified here.
 
 - **Europe PMC**
   - *Key:* none.
-  - *Free limit:* no published limit; returns no rate-limit headers.
+  - *Free limit:* no published limit; returns no rate-limit headers (re-checked
+    2026-10-06).
   - *Raised by:* —
 
 - **NCBI E-utilities**
@@ -778,9 +842,12 @@ and were not verified here.
 
 - **Semantic Scholar**
   - *Key:* none required; a free one is available.
-  - *Free limit:* a **shared** anonymous pool — a single cold call to
+  - *Free limit:* a **shared** anonymous pool of 1,000 requests/second across all
+    unauthenticated users *(their docs)* — so in practice a single cold call to
     `/paper/search` returned **429** and succeeded on the immediate retry.
-  - *Raised by:* a free key — <https://www.semanticscholar.org/product/api#api-key>
+  - *Raised by:* a free key — <https://www.semanticscholar.org/product/api#api-key>.
+    A key is your own pool, but it starts at **1 request/second** on all endpoints
+    *(their docs)*.
 
 - **arXiv**
   - *Key:* none.
@@ -790,13 +857,62 @@ and were not verified here.
 
 - **DataCite**
   - *Key:* none.
-  - *Free limit:* no published limit; returns no rate-limit headers.
-  - *Raised by:* —
+  - *Free limit:* **500 requests per 5 minutes per IP** without identification,
+    **1,000** with an email address in the User-Agent or a `mailto=` parameter;
+    over the limit returns HTTP 429 *(their docs; no headers)*.
+  - *Raised by:* DataCite member credentials → 3,000 per 5 minutes *(their docs)*.
 
 - **INSPIRE-HEP**
   - *Key:* none.
-  - *Free limit:* no published limit; returns no rate-limit headers.
+  - *Free limit:* **15 requests per 5-second window per IP** *(their docs; no
+    headers)*. Blocked requests count toward the quota, so wait at least 5 s after
+    a 429.
   - *Raised by:* —
+
+- **OpenAIRE Graph API**
+  - *Key:* none required.
+  - *Free limit:* **60 requests/hour** unauthenticated *(their docs)*. The headers
+    disagree: an unauthenticated call on 2026-10-06 returned `x-ratelimit-limit:
+    7199`. Plan for 60.
+  - *Raised by:* an OpenAIRE account token → 7,200/hour *(their docs)*.
+
+- **DOAJ**
+  - *Key:* none for search.
+  - *Free limit:* **2 requests/second** on all API routes, with bursts of up to
+    5 queued requests *(their docs; no headers)*.
+  - *Raised by:* —
+
+- **Zenodo**
+  - *Key:* none for reading.
+  - *Free limit:* search **30 requests/minute** (`x-ratelimit-limit: 30`,
+    measured 2026-10-06); overall 60/minute and 2,000/hour for guests; OAI-PMH
+    30/minute *(their docs)*.
+  - *Raised by:* a personal access token → 100/minute and 5,000/hour overall
+    *(their docs)*.
+
+- **dblp**
+  - *Key:* none.
+  - *Free limit:* the search API answers with an **Anubis bot-check page**
+    (HTTP 200, HTML, title "Making sure you're not a bot!") on all three hosts,
+    measured twice on 2026-10-06. Before that it rate-limited at about a dozen
+    quick requests; `robots.txt` asks for 4 s between requests.
+  - *Raised by:* nothing; for bulk work use the XML dump or the SPARQL endpoint
+    `sparql.dblp.org`, both of which answered normally. See `reference/dblp.md`.
+
+- **Wikisource and other Wikimedia wikis**
+  - *Key:* none for reading.
+  - *Free limit:* **10 requests/minute** for a client identified by IP address
+    only; **200/minute** for a bot whose User-Agent carries contact details;
+    at most 3 concurrent requests; honor `Retry-After`, or wait at least 5 s
+    *(their docs; being deployed during 2026)*.
+  - *Raised by:* logging in (200/minute, 2,000 for established editors); a bot
+    flag is exempt *(their docs)*.
+
+- **Field repositories and archives with no published limit**: HAL, OSF, OSTI,
+  zbMATH Open, J-STAGE, bioRxiv/medRxiv, archive.org search and the Wayback
+  Machine CDX API. None returns rate-limit headers (checked 2026-10-06). The
+  Wayback Machine returned HTTP 429 twice on 2026-10-06, so it does enforce a
+  limit; space requests a few seconds apart.
 
 - **SciX (formerly NASA ADS)**
   - *Key:* required — `scix_api_key`, the same token as the old ADS API token.
@@ -831,7 +947,7 @@ and were not verified here.
   - *Free limit:* none published, none observed; no rate-limit headers.
   - *Raised by:* —
 
-- **Sci-Hub**
+- **Sci-Hub** and **Sci-Net**
   - *Key:* none.
   - *Free limit:* none — the constraint is availability, not rate.
   - *Raised by:* —
@@ -870,7 +986,9 @@ so you can read just the ones you are about to use; full detail is in the matchi
   tokens against roughly 40k to load a whole paper.
 - **`-c/--count` is documented as "count only (no results)" but is a no-op** — it
   returns the full list anyway.
-- **`SELECT COUNT(*)` returns one row per backend**, not a total.
+- **`SELECT COUNT(*)` returns one row per backend**, not a total, and on
+  2026-10-06 the PMC backend was missing from every count and timed out when
+  queried alone. The trailer line names the backends that answered; check it.
 - **`lookup --json` ignores the flag** and prints human text anyway, and exits 0
   even when it found nothing.
 - **Some records carry future publication dates** — a `2027-08-01` at the head of a

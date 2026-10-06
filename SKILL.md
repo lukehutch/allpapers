@@ -1,6 +1,6 @@
 ---
 name: allpapers
-description: Find and retrieve the full text of scientific papers from paperclip (which is also a semantic search engine: embedding-based as well as keyword search over 11.6M full texts), arXiv LaTeX source, CORE, Unpaywall, OpenAlex, Europe PMC, Google Scholar, Gemini grounded search, field repositories, public-domain archives (archive.org, Wikisource, Gallica) and shadow libraries (LibGen, Sci-Hub, Sci-Net, Anna's Archive, Z-Library) as a last resort. Use when asked to look up a paper, get its full text, search the literature by keyword or by meaning, check what a paper actually says, verify a citation, or build a bibliography. Always prefers parseable text formats over PDF.
+description: Find and retrieve the full text of scientific papers from paperclip (which is also a semantic search engine: embedding-based as well as keyword search over 11.7M full texts), arXiv LaTeX source, CORE, Unpaywall, OpenAlex, Europe PMC, Google Scholar, Gemini grounded search, field repositories, public-domain archives (archive.org, Wikisource, Gallica) and shadow libraries (LibGen, Sci-Hub, Sci-Net, Anna's Archive, Z-Library) as a last resort. Use when asked to look up a paper, get its full text, search the literature by keyword or by meaning, check what a paper actually says, verify a citation, or build a bibliography. Always prefers parseable text formats over PDF.
 ---
 
 # allpapers
@@ -51,7 +51,7 @@ that gets committed.
 |---|---|---|
 | **email** | — | Required. Unpaywall 422s without it; polite pools elsewhere |
 | **CORE key** | free, instant | Without it CORE returns `"Not available for public API users."` instead of full text, and allows 10 requests per 10 minutes |
-| **OpenAlex key** | free, instant | Raises the daily budget from $0.10 to $1, and is **required** to download OpenAlex's cached GROBID TEI XML — a structured parse existing for ~49M works |
+| **OpenAlex key** | free, instant | Raises the daily budget from $0.10 to $1, and is **required** to download OpenAlex's cached GROBID TEI XML — a structured parse existing for ~51M works |
 | **Gemini key** | free tier | Enables `allpapers-search --gemini`, grounded web search over the open web. Optional |
 | **NCBI key** | free | eutils at 10 requests/sec instead of 3. The anonymous limit is enforced and returns HTTP 429 mid-sequence, which reads as a lookup failure |
 | **Semantic Scholar key** | free | Higher rate limits on the identifier-bridge endpoint |

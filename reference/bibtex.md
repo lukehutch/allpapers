@@ -50,6 +50,11 @@ merged entry still dates a 2017 paper to 2025.
 | dblp | `https://dblp.org/search/publ/api?q={title}+{surname}`, then `https://dblp.org/rec/{key}.bib?param=1` | computer science: conference proceedings, their editors and series |
 | Scholar | `https://scholar.google.com/scholar?as_epq={title}&as_occt=title` | venue strings for grey literature; last resort |
 
+**dblp's search API is blocked by a bot check** (measured 2026-10-06; see
+`dblp.md`), so `allpapers-bibtex` currently gets no dblp entry and notes "dblp
+returned a non-JSON body". INSPIRE allows 15 requests per 5 seconds per IP;
+`README.md` lists every index's size and limit.
+
 `doi.org` content negotiation returns the registration agency's own BibTeX, so
 one request covers Crossref and DataCite both. Which agency answered is
 determined afterward by asking `api.crossref.org` whether it knows the DOI —

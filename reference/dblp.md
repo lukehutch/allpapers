@@ -10,6 +10,43 @@ paper, not the journal article, is the unit of record.
 Everything below was measured against the live API on 2026-09-02 with a Chrome
 User-Agent. There is **no API key and no registration**; the service is open.
 
+**Size**, 2026-10-06: **8,790,515 publications**, counted on the SPARQL endpoint
+(`SELECT (COUNT(?p) AS ?n) WHERE { ?p a dblp:Publication }` with
+`PREFIX dblp: <https://dblp.org/rdf/schema#>`).
+
+## The search API is behind a bot check (2026-10-06)
+
+On 2026-10-06 the search API and the `.bib` record pages answered every request
+with an **Anubis bot-check page**: HTTP 200, `content-type: text/html`, title
+"Making sure you're not a bot!", scripts under `/.within.website/`. It happened on
+all three hosts (`dblp.org`, `dblp.uni-trier.de`, `dblp.dagstuhl.de`), and again
+about 20 minutes later. A script cannot pass the check, so until it is lifted
+`allpapers-locate` reports dblp as failed and `allpapers-bibtex` notes "dblp
+returned a non-JSON body". Neither result is evidence that dblp lacks the paper.
+
+Two routes still answered normally on the same day:
+
+- **SPARQL**, `https://sparql.dblp.org/sparql`, with
+  `Accept: application/sparql-results+json`. A title-plus-surname lookup returned
+  the same two Vaswani records as the search API, in 11.3 s:
+
+  ```sparql
+  PREFIX dblp: <https://dblp.org/rdf/schema#>
+  SELECT ?p ?t ?doi WHERE {
+    ?p dblp:title ?t . FILTER(CONTAINS(LCASE(?t), "attention is all you need"))
+    ?p dblp:authoredBy ?a . ?a dblp:primaryCreatorName ?n . FILTER(CONTAINS(?n, "Vaswani"))
+    OPTIONAL { ?p dblp:doi ?doi }
+  } LIMIT 5
+  ```
+
+  The record IRI (`https://dblp.org/rec/conf/nips/VaswaniSPUJGKP17`) contains the
+  dblp key. SPARQL also holds DOIs, unlike the search index.
+- **The XML dump**, `https://dblp.org/xml/dblp.xml.gz`: 1,107,220,823 bytes,
+  `last-modified` 2026-10-05.
+
+The scripts still call the search API. Recheck it before relying on the sections
+below, which describe it as it behaved on 2026-09-02.
+
 ## Why it earns a place
 
 Two things it does better than anything else here:

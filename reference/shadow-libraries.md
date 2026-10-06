@@ -92,6 +92,8 @@ measured. Prefer SLUM, and verify regardless.
 ## Sci-Hub
 
 Measured 2026-08-26. See `scihub.md` for the `scihub-cli` wrapper and its defects.
+Size: "84,794,279 papers in Sci-Hub library" on the front page, unchanged between
+2026-08-26 and 2026-10-06.
 
 | Domain | Measured | Note |
 |---|---|---|
@@ -127,7 +129,8 @@ unreliable rather than rate-limited. **Paid tier:** none — but see Sci-Net bel
 
 `sci-net.xyz` is Alexandra Elbakyan's newer site: members request a paper by DOI
 and other members upload it. A fulfilled request stays public at
-`https://sci-net.xyz/<DOI>`. SLUM lists it as `PROTECTED`, but measured on
+`https://sci-net.xyz/<DOI>`. Its front page publishes no count of papers. SLUM
+lists it as `PROTECTED`, but measured on
 2026-10-04 with the Chrome User-Agent it served pages and files with no challenge
 and no login:
 
@@ -153,6 +156,11 @@ already uploaded needs neither.
 **LibGen is the only shadow library here that is fully scriptable, needs no key,
 and returns clean JSON.** This makes it the first shadow library to try, ahead of
 Sci-Hub.
+
+Size, from `https://libgen.li/stat.php` (updated 2026-10-06): **90,065,252
+scimag files** (journal articles, 84.84 TB), 8,480,486 non-fiction books, 10,195,115
+fiction, 2,217,121 magazine files and 1,034,147 standards; 116,491,641 files in
+all. No published rate limit and no rate-limit headers.
 
 ### Live domains (2026-08-26)
 
@@ -307,12 +315,16 @@ well-formed md5 with a bad key. So 401 is the "you are not a member" signal.
 - **No published per-key rate limit.** The daily *download* quota is the real
   limit and it is tied to the membership tier.
 
-**Corpus size** (Wikipedia, 2026-08-20): 71,400,751 books and 157,010,964 papers,
-with roughly 1.1 PB mirrored in public torrents.
+**Corpus size** (Wikipedia, as of 2026-10-01, read 2026-10-06): 71,996,952 books
+and 239,545,528 papers, with roughly 1.1 PB mirrored in public torrents. On
+2026-08-20 the same article gave 157,010,964 papers.
 
 ---
 
 ## Z-Library — not scriptable
+
+Size: welib.org's front page says "43 million books, 98 million papers", and
+98,551,629 academic papers (2026-10-06).
 
 All six domains SLUM tracks were probed on 2026-08-26:
 

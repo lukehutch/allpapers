@@ -61,6 +61,10 @@ volumes and the `sim_` ("Serials in Microfilm") runs of journals into the 20th
 century; searching `Annalen der Physik` for 1905 returns
 `sim_annalen-der-physik_1905_16_1` and its siblings.
 
+Size, 2026-10-06: 52,566,836 items with `mediatype:texts`, 1,973,221 of them in
+`collection:sim_microfilm` (`advancedsearch.php?q=…&rows=0&output=json` →
+`numFound`). No published rate limit and no rate-limit headers.
+
 ```bash
 # search
 curl -s 'https://archive.org/advancedsearch.php?q=title%3A%28Annalen+der+Physik%29+AND+year%3A1905&fl%5B%5D=identifier&fl%5B%5D=title&rows=50&output=json'
@@ -90,6 +94,13 @@ Volunteer transcriptions, each page tied to the scan it was typed from. The Germ
 Wikisource is especially strong for 19th- and early 20th-century physics and
 mathematics.
 
+Size, 2026-10-06 (`api.php?action=query&meta=siteinfo&siprop=statistics`): en
+1,133,084 content pages, fr 717,777, de 655,542. Wikimedia's published API limits
+(being deployed during 2026): **10 requests/minute** for a client identified only
+by its IP address, **200/minute** for a script whose User-Agent names the tool and
+a contact address, at most 3 concurrent requests. Honor `Retry-After`, or wait at
+least 5 s.
+
 ```bash
 # search the transcribed pages (namespace 102 on de, 104 on en and fr)
 curl -s 'https://de.wikisource.org/w/api.php?action=query&list=search&srsearch=Zur%20Elektrodynamik%20bewegter%20K%C3%B6rper&srnamespace=102&format=json'
@@ -110,7 +121,10 @@ check of the quoted sentence against the scan is still cheap. Treat quality 3
 ## Gallica (Bibliothèque nationale de France)
 
 Strong for French journals, including the *Comptes rendus* of the Académie des
-sciences. Partly scriptable:
+sciences. Size: more than 10 million documents, including 862,918 books and
+5,804,805 journal and newspaper issues, according to French Wikipedia (as of May
+2025). It could not be counted live: on 2026-10-06 the SRU endpoint answered
+`Access Denied: 403 Access Interdit` twice, minutes apart. Partly scriptable:
 
 - **Search** (`https://gallica.bnf.fr/SRU?operation=searchRetrieve&version=1.2&query=dc.title%20all%20%22comptes%20rendus%22`)
   works, but measured, it answered once and then returned
@@ -132,11 +146,12 @@ reach them.
 | Archive | Covers | Measured |
 |---|---|---|
 | `journaldephysique.org` | *Journal de Physique* and its predecessors | DataDome captcha — browser only |
-| `numdam.org` | French mathematics journals | 200, browsable |
-| `eudml.org` | European mathematics journals, links to the hosting archive | 200, browsable |
-| HathiTrust | US research-library scans | catalog API works (`catalog.hathitrust.org/api/volumes/brief/oclc/<n>.json`); full-view pages behind a Cloudflare challenge — browser only |
-| Biodiversity Heritage Library | natural history | Cloudflare challenge — browser only |
+| `numdam.org` | French mathematics journals: 75,599 articles in 120 journals, plus 706 books and 416 theses (front page, 2026-10-06) | 200, browsable |
+| `eudml.org` | European mathematics journals, links to the hosting archive: 271,792 items in 14 collections (front page, 2026-10-06) | 200, browsable |
+| HathiTrust | US research-library scans: more than 18 million volumes, 6.7 million public domain in the US (Wikipedia, as of September 2024) | catalog API works (`catalog.hathitrust.org/api/volumes/brief/oclc/<n>.json`); full-view pages behind a Cloudflare challenge — browser only |
+| Biodiversity Heritage Library | natural history: hundreds of thousands of volumes, over 59 million pages (Wikipedia) | Cloudflare challenge — browser only |
 
 `zbMATH Open` (`api.zbmath.org`) is not an archive, but its API returns
 mathematics records back to the 19th century with links to the digitized copy,
-which is often the quickest way to find one.
+which is often the quickest way to find one. It counted 5,197,308 documents
+published 1800–2026 on 2026-10-06, and publishes no rate limit.
