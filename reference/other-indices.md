@@ -359,7 +359,7 @@ key; `allpapers-setup` stores both.
 | zbMATH Open | mathematics, back to the 19th century | `https://api.zbmath.org/v1/document/_search?search_string=<query>` | records whose `links` point to the digitized copy (EuDML and others) |
 | RePEc / IDEAS | economics working papers | `https://ideas.repec.org/...` pages | HTML with links to the author's copy |
 | SciX / NASA ADS | astronomy and physics, including pre-DOI papers | `curl -H "Authorization: Bearer $SCIX_API_KEY" 'https://api.scixplorer.org/v1/search/query?q=bibcode:1998AJ....116.1009R&fl=bibcode,title,doi'` | JSON records; measured 2026-10-06, HTTP 200 with one hit. `scix_api_key` is required (401 without it) |
-| BASE (Bielefeld) | open repository records worldwide | `https://api.base-search.net/cgi-bin/BaseHttpSearchInterface.fcgi` — needs `base_api_key` | without a key the API answers `Access denied for IP address`. The key's format and how it is sent are not yet verified: the interface guide (`base_interface.pdf`) sits behind a bot check |
+| BASE (Bielefeld) | open repository records worldwide | `https://api.base-search.net/cgi-bin/BaseHttpSearchInterface.fcgi?func=PerformSearch&query=dcdoi:<doi>&format=json&apikey=$BASE_API_KEY` | Solr records with `dclink`, `dcdoi` and `dcoa` (1 = open access). `base_api_key` is required; see the BASE section below |
 
 **Browser only** — an anti-bot challenge or an IP allow-list stops a script; a
 human can still use them:
@@ -388,6 +388,39 @@ credential as the old ADS API token**. Both API hosts accept it, measured
 (`x-ratelimit-limit: 5000`), reset at midnight UTC. Get the token by creating a
 login at scixplorer.org, then at <https://scixplorer.org/user/settings/token>.
 The API is documented at <https://github.com/adsabs/adsabs-dev-api>.
+
+### BASE (Bielefeld Academic Search Engine)
+
+BASE harvests repository metadata over OAI-PMH: by its own count, more than 470
+million records from 12,100 content providers. It holds metadata and links, not
+full text, so use it to find a repository copy that the rung-3 indices missed.
+The rules below come from its *Interface Guide*, version 1.29 (April 2026),
+<https://www.base-search.net/themes/base/data/download/base_interface.pdf>,
+which is behind a bot check, so open it in a browser.
+
+- **Key.** `apikey=<key>` is a mandatory URL parameter on every call (the guide's
+  example key is 32 hex characters). Apply at
+  <https://www.base-search.net/About/Contact>. The API is for non-commercial use
+  only.
+- **No key returns HTTP 200.** Measured 2026-10-06, a call without a key returned
+  HTTP 200 with the body `{"error": "Access denied for IP address <ip> and user
+  agent curl/8.18.0."}`. Check the body for `error`, not the status code.
+- **Rate limit:** one request per second.
+- **Calls.** `func=PerformSearch` with `query=` (Solr syntax, at most 1,000
+  characters), `format=json` (the default is XML), `hits=` (default 10, at most
+  120), `offset=` (at most 999), `fields=` to cut the record down, and `boost=oa`
+  to rank open-access records first. `coll=` limits the search to a continent
+  (`ceu`, `cna`, ...) or country (`de`, `uk`, ...); `target=` limits it to one
+  repository. `func=ListRepositories` and `func=ListProfile` describe the
+  repositories.
+- **Useful fields.** Search by `dcdoi:<doi>`, `dctitle:`, `dccreator:` and
+  `dcyear:[1983 TO 2009]`. In the result, `dclink` is the preferred URL,
+  `dcidentifier` lists all URLs, and `dcoa` is 1 for open access, 0 for not and 2
+  for unknown. `dctypenorm` gives the document type (121 journal article, 13
+  conference object, 183 doctoral thesis; the guide lists the rest).
+- **Keep the key out of records.** The key travels in the URL. The scripts'
+  `scrub_url` already removes `apikey=`; for a URL you copy by hand, delete it
+  before writing the URL into `verification/bib.md` or anywhere else.
 
 ## Wayback Machine — when the free copy's link is dead
 

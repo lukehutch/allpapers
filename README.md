@@ -287,13 +287,15 @@ Everything works without the optional keys, just less well.
 
 - **`base_api_key`**
   - *Used by:* **BASE** (Bielefeld Academic Search Engine): required by its API,
-    which otherwise answers `Access denied for IP address`.
+    which otherwise answers `Access denied for IP address ... and user agent ...`.
   - *Cost:* free, but reviewed by hand — expect a wait.
   - *Where to register:* <https://www.base-search.net/About/Contact>. The
     interface guide is
     <https://www.base-search.net/themes/base/data/download/base_interface.pdf>.
-  - *What it buys:* search over open repository records worldwide. How the key is
-    sent has not been verified here, because the guide sits behind a bot check.
+  - *What it buys:* search over about 470 million records from 12,100
+    repositories, with DOI and open-access fields, which finds repository copies
+    the other indices miss. The key is sent as the URL parameter `apikey=`.
+    Without it the API answers HTTP 200 with an `Access denied` error in the body.
 
 Any setting can also be given as an environment variable: **the setting name in
 upper case** — `CORE_API_KEY`, `GEMINI_API_KEY`, `SERPAPI_KEY` and so on. The one
@@ -804,8 +806,9 @@ and were not verified here.
     limits.
 
 - **BASE**
-  - *Key:* required — `base_api_key`, granted on application.
-  - *Free limit:* *(not measured)*.
+  - *Key:* required — `base_api_key`, granted on application; non-commercial use
+    only.
+  - *Free limit:* **1 request/second** *(their docs)*.
   - *Raised by:* —
 
 - **Google Scholar**

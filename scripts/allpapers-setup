@@ -95,13 +95,14 @@ FIELDS = {
     ),
     "base_api_key": (
         False, "BASE_API_KEY",
-        "BASE (Bielefeld Academic Search Engine): required by its API, which "
-        "otherwise answers 'Access denied for IP address'",
-        "BASE search over open repository records worldwide (how the key is sent "
-        "is in the interface guide, which sits behind a bot check: "
-        "https://www.base-search.net/themes/base/data/download/base_interface.pdf)",
+        "BASE (Bielefeld Academic Search Engine): required by its API, sent as "
+        "the URL parameter apikey=. Without it the API answers HTTP 200 with "
+        "'Access denied for IP address ... and user agent ...'",
+        "BASE search over 470M records from 12,100 repositories, with DOI and "
+        "open-access fields; 1 request/second, non-commercial use only",
         "apply at https://www.base-search.net/About/Contact  (free, manually "
-        "reviewed — expect a wait)",
+        "reviewed — expect a wait). Interface guide: "
+        "https://www.base-search.net/themes/base/data/download/base_interface.pdf",
     ),
 }
 
