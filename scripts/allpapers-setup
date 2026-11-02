@@ -9,6 +9,7 @@ up the same values and nobody has to be asked twice.
                                      essential one is missing
     allpapers-setup --set email=me@example.org core_api_key=...
     allpapers-setup --env            emit `export` lines for a shell
+    allpapers-setup --get KEY        print one saved value, for use in a command
     allpapers-setup                  interactive prompts for what is missing
 """
 from __future__ import annotations
@@ -36,12 +37,11 @@ FIELDS = {
     ),
     "paperclip_api_key": (
         False, "PAPERCLIP_API_KEY",
-        "paperclip: optional, since browser sign-in covers the CLI. Required for "
-        "its REST API, including the evidence API, and on a machine with no "
-        "browser. The CLI reads it only from the environment, so export it with "
-        "--env",
-        "paperclip's REST API and use without a browser. It does not raise "
-        "limits, which belong to the account",
+        "paperclip: optional, for scripted REST calls; browser sign-in covers the "
+        "CLI. Do not export it: the CLI fails on every command when it has a key "
+        "(0.8.13). Pass it to a single call with --get",
+        "paperclip's REST API without the login token. It does not raise limits, "
+        "which belong to the account",
         "free account: https://paperclip.gxl.ai/keys  100 map documents/day, 25 "
         "searches and 25 corpus-wide greps started per minute. Pro plan, "
         "$200/month: https://paperclip.gxl.ai/pricing  10,000 map documents/day, "
@@ -171,27 +171,25 @@ def save(cfg: dict) -> None:
             print(f"warning: could not mirror into {SCIHUB_CONFIG}: {exc}", file=sys.stderr)
 
 
-def paperclip_state(cfg: dict) -> str:
+def paperclip_state() -> str:
     """Report paperclip install + login state without printing any token."""
     if not shutil.which("paperclip"):
         return ("NOT INSTALLED — curl -fsSL https://paperclip.gxl.ai/install.sh | bash")
     if os.getenv("PAPERCLIP_API_KEY"):
-        return "OK (PAPERCLIP_API_KEY set)"
-    unused = ""
-    if cfg.get("paperclip_api_key"):
-        unused = ('; saved key NOT IN USE, run: eval "$(allpapers-setup --env)"')
+        return ("BROKEN — PAPERCLIP_API_KEY is set, and the CLI fails on every "
+                "command with a key (0.8.13). Run: unset PAPERCLIP_API_KEY")
     if (Path.home() / ".paperclip" / "credentials.json").exists():
         try:
             ver = subprocess.run(["paperclip", "--version"], capture_output=True,
                                  text=True, timeout=15).stdout.strip()
         except (OSError, subprocess.SubprocessError):
             ver = "installed"
-        return f"OK (logged in; {ver}){unused}"
-    return f"installed but NOT LOGGED IN — run: paperclip login{unused}"
+        return f"OK (logged in; {ver})"
+    return "installed but NOT LOGGED IN — run: paperclip login"
 
 
 def check(cfg: dict) -> int:
-    print(f"paperclip                 : {paperclip_state(cfg)}")
+    print(f"paperclip                 : {paperclip_state()}")
     missing_essential = False
     for key, (essential, env, service, unlocks, where) in FIELDS.items():
         tag = "required" if essential else "optional"
@@ -227,8 +225,19 @@ def main() -> int:
 
     if args and args[0] == "--env":
         for key, (_, env, _, _, _) in FIELDS.items():
-            if cfg.get(key):
+            # The paperclip CLI fails on every command if it sees this key.
+            if cfg.get(key) and key != "paperclip_api_key":
                 print(f"export {env}={cfg[key]!r}")
+        return 0
+
+    if args and args[0] == "--get":
+        if len(args) != 2 or args[1] not in FIELDS:
+            print(f"--get needs one of: {', '.join(FIELDS)}", file=sys.stderr)
+            return 2
+        if not cfg.get(args[1]):
+            print(f"{args[1]} is not set", file=sys.stderr)
+            return 1
+        print(cfg[args[1]])
         return 0
 
     if args and args[0] == "--set":
@@ -254,7 +263,7 @@ def main() -> int:
 
     # Interactive: show every service and where to register, prompt only for
     # what is still missing.
-    print(f"paperclip: {paperclip_state(cfg)}\n")
+    print(f"paperclip: {paperclip_state()}\n")
     for key, (essential, _, service, unlocks, where) in FIELDS.items():
         tag = "required" if essential else "optional"
         print(f"{key} ({tag}) — used by: {service}")

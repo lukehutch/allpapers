@@ -32,25 +32,32 @@ paperclip login                    # browser sign-in
 paperclip --version                # verified against 0.7.38
 ```
 
-On a machine with no browser, and for the REST API, use an API key from
-<https://paperclip.gxl.ai/keys>. The CLI never stores a key: it reads
-`PAPERCLIP_API_KEY` or `--api-key`, and `--api-key` goes before the subcommand.
+**Use the browser login for the CLI, and do not export an API key.** With a key, by
+`PAPERCLIP_API_KEY` or `--api-key`, every CLI command tested (`search`, `lookup`,
+`grep`, `evidence`) fails with `Something went wrong. Please try again`, while
+`paperclip config` still reports `Auth: ✓ API key (env)`. Measured 2026-11-02 on
+0.8.13, the newest release. The key is valid, and REST calls with it succeed. The CLI
+sends key-authenticated commands to the MCP tool `paperclip` (`client.py:588`), and
+the server answers `Unknown tool 'paperclip'`, because it now lists separate tools
+such as `search` and `grep`. So `--check` reports a `PAPERCLIP_API_KEY` in the
+environment as `BROKEN`, and `--env` leaves the key out. Until this is fixed, a
+machine with no browser cannot use the CLI.
+
+Save a key from <https://paperclip.gxl.ai/keys> for REST calls, and pass it to each
+call:
 
 ```bash
 scripts/allpapers-setup --set paperclip_api_key=gxl_...   # saved with mode 0600
-eval "$(scripts/allpapers-setup --env)"                   # exports it to this shell
+curl -H "X-API-Key: $(scripts/allpapers-setup --get paperclip_api_key)" ...
 ```
-
-Add the `eval` line, with the script's full path, to `~/.bashrc` so every shell has
-the key. Until it is exported, `allpapers-setup --check` reports `saved key NOT IN
-USE`, and neither the CLI nor the scripts that call it can see the key.
 
 ### Plans and limits
 
 | | No account | Free account | Pro plan, $200/month |
 |---|---|---|---|
-| Sign-in | none | browser login or API key | browser login or API key |
-| CLI | fails: `Not authenticated` (measured) | yes | yes |
+| Credentials | none | browser login or API key | browser login or API key |
+| CLI | fails: `Not authenticated` (measured) | yes, with the browser login | yes, with the browser login |
+| REST API, including evidence | fails: HTTP 401 (measured) | yes (measured) | yes |
 | Map documents per day | none | 100 | 10,000 |
 | Searches started per minute | none | 25 | 50 |
 | Corpus-wide greps started per minute | none | 25 | 50 |
@@ -213,23 +220,27 @@ For a program without the CLI:
 
 ```bash
 curl -X POST https://paperclip.gxl.ai/api/v1/claims/support \
-  -H "Authorization: Bearer $PAPERCLIP_API_KEY" -H "Content-Type: application/json" \
+  -H "X-API-Key: $(scripts/allpapers-setup --get paperclip_api_key)" \
+  -H "Content-Type: application/json" \
   -d '{"claim": "Metformin improves survival in pancreatic cancer"}'
 ```
 
-**The REST API needs an API key; the CLI does not.** Measured 2026-11-02:
+**The evidence API needs credentials, not specifically a key, and it behaves like
+the main API.** Measured 2026-11-02 on a free account:
 
-| Route | Credentials | Result |
-|---|---|---|
-| `paperclip evidence` | browser login, no key | works |
-| `paperclip evidence` | none | fails: `Not authenticated` |
-| `POST /api/v1/claims/support` | none | HTTP 401 |
-| `POST /api/v1/claims/support` | key from a free account | not run |
+| Credentials | `POST /search` | `POST /claims/support` | `paperclip evidence` |
+|---|---|---|---|
+| none | 401 | 401 | fails: `Not authenticated` |
+| invalid key | not run | 401 | not run |
+| browser login token, no key | 200 | 200 | works |
+| API key | 200 | 200 | fails (see "Install and auth") |
 
-Keys are at <https://paperclip.gxl.ai/keys>, and the secret is shown once. The
-header can be `Authorization: Bearer` or `X-API-Key`. The full schema is at
-<https://paperclip.gxl.ai/api/v1/openapi.json>. **No key is set here, so the rest of
-this subsection is from their docs and was not run.**
+No part of the API works with no credentials. Use a key for REST calls: it is the
+documented method, while the login token is short-lived and the docs do not mention
+it. The header can be `X-API-Key` or `Authorization: Bearer`; both returned 200. The
+401 for an invalid key says `no credentials provided`, so that message does not mean
+the header was missing. The schema is at
+<https://paperclip.gxl.ai/api/v1/openapi.json>.
 
 | Field | Default | Meaning |
 |---|---|---|
@@ -241,12 +252,20 @@ this subsection is from their docs and was not run.**
 | `include_context` | false | also return `context` and `evidence_offset` |
 | `include_neutral` | false | also return `neutral` |
 
+These fields were run with a key. `limit` 3 returned 3 per list, and with no `limit`
+25. `min_conf` 0.95 gave a lowest confidence of 0.967, and with no `min_conf` 0.875.
+`top_n` 50 retrieved 75 passages. `include_context` and `include_neutral` added their
+fields. A two-character claim returned 400. The default request took 0.85 s and gave
+the same counts as the CLI (254 retrieved; 87, 71 and 96). The `X-Request-Id` header
+equals `id`, and there are no rate-limit headers.
+
 The response holds `id`, `claim`, `model_version`, `counts` (`retrieved`, `supports`,
 `refutes`, `neutral`, `supports_retracted`, `refutes_retracted`), `supports`,
 `refutes` and `timing_ms`. Each item has `evidence`, `confidence`, `weight`, `section`
 and `paper`. `paper` holds `id`, `source`, `title`, `journal`, `authors`,
 `authors_truncated`, `doi`, `pmid`, `date`, `year`, `citations`, `design`, `retracted`,
-`expression_of_concern`, `retraction_doi` and `retraction_notice`. Lists are sorted
+`author_h_index`, `expression_of_concern`, `retraction_doi` and `retraction_notice`.
+Lists are sorted
 by `weight` (confidence, study design and citations, with retracted papers last).
 `counts` gives the totals before the `limit` cut. Errors: 400 and 422 invalid request,
 401 bad key, 429 rate limited, 502 and 503 temporarily unavailable.
@@ -255,7 +274,8 @@ by `weight` (confidence, study design and citations, with retracted papers last)
 had no `source`, `authors`, `date` or `expression_of_concern`, and it added `url`. So
 an expression of concern may not be visible from the CLI: check the paper itself. The
 CLI result also adds `supports_more`, `refutes_more`, `judged`, `top_n`, `per_side`,
-`result_id` and `permalink`.
+`result_id` and `permalink`. The REST result has no `permalink`. Use REST when
+retraction status matters.
 
 ### What the results can and cannot tell you
 
