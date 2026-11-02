@@ -1,6 +1,6 @@
 ---
 name: allpapers
-description: Find and retrieve the full text of scientific papers from paperclip (which is also a semantic search engine: embedding-based as well as keyword search over 11.7M full texts), arXiv LaTeX source, CORE, Unpaywall, OpenAlex, Europe PMC, Google Scholar, Gemini grounded search, field repositories, public-domain archives (archive.org, Wikisource, Gallica) and shadow libraries (LibGen, Sci-Hub, Sci-Net, Anna's Archive, Z-Library) as a last resort. Use when asked to look up a paper, get its full text, search the literature by keyword or by meaning, check what a paper actually says, verify a citation, or build a bibliography. Always prefers parseable text formats over PDF.
+description: Find and retrieve the full text of scientific papers from paperclip (which is also a semantic search engine: embedding-based as well as keyword search over 11.7M full texts), arXiv LaTeX source, CORE, Unpaywall, OpenAlex, Europe PMC, Google Scholar, Gemini grounded search, field repositories, public-domain archives (archive.org, Wikisource, Gallica) and shadow libraries (LibGen, Sci-Hub, Sci-Net, Anna's Archive, Z-Library) as a last resort. Use when asked to look up a paper, get its full text, search the literature by keyword or by meaning, find evidence for or against a claim, check what a paper actually says, verify a citation, or build a bibliography. Always prefers parseable text formats over PDF.
 ---
 
 # allpapers
@@ -197,6 +197,15 @@ to 250 for this reason; do not lower it while sweeping.
 **Think about sort order.** `--sort date` is for recency sweeps, not for finding
 the single best source — it discards relevance entirely. It is also incompatible
 with `--min-similarity`. See `reference/search.md`.
+
+**To find evidence for or against a specific claim, start with `paperclip
+evidence "<claim>"`.** It returns the exact supporting and refuting sentences from
+PMC, arXiv, bioRxiv, medRxiv and abstracts in a few seconds, with study design and
+citation counts. Add `-n 50 --deep` before saying that no contrary evidence exists.
+It is a way to find papers, not a verification: measured, it returned off-topic
+passages on both sides, so open each paper and quote it before citing it, and do not
+count passages as votes. Do not send an unpublished claim through it, because the CLI
+saves each result and prints a share link. See `reference/paperclip.md`.
 
 Add `--gemini` to run Gemini grounded web search alongside paperclip, in parallel.
 It reaches the open web — preprints, theses, lab pages, standards documents —

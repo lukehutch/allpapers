@@ -146,6 +146,109 @@ four rankings, result limits, sort order, the narrowing filters new in 0.7.38
 (`--bool`, `--full-text`, `--has-full-text`, `--has-section`, `--exclude-*`,
 `--year-min/max`) and the stateful `--from` loop. Read it before any sweep.
 
+## Evidence for or against a claim
+
+`paperclip evidence` finds published passages that support or refute one specific
+claim. It searches 360M+ passages across PMC, arXiv, bioRxiv, medRxiv and abstracts
+*(their docs)*, and a trained model reads each passage and marks the exact sentences.
+It answers in 1 to 3 seconds, so use it to find both sides of a claim quickly
+instead of running a search and reading every hit. Measured 2026-11-02 on 0.8.13.
+
+```bash
+paperclip evidence "Metformin improves survival in pancreatic cancer"
+paperclip evidence "<claim>" -n 50 --deep --json     # most the CLI can return
+paperclip evidence "<claim>" --neutral               # also passages judged neither way
+```
+
+The command is missing from `paperclip --help`'s command list; it is listed in
+`paperclip skill` and has its own `paperclip evidence --help`. It uses the normal
+login, so **no API key is needed for the CLI.**
+
+| Option | Effect | Measured |
+|---|---|---|
+| `-n` | items per side, default 5, at most 50 | `-n 51` is rejected |
+| `--deep` | judges a wider pool | `top_n` 500, 774 passages, 2.5 s; default `top_n` 150, 254 passages, 0.9 s |
+| `--neutral` | also lists passages judged neither way | items are marked `NEUTRAL` |
+| `--json` | the full result | adds `context`, `evidence_offset`, `also_quoted_in`, `more_passages` |
+
+### The REST API
+
+For a program without the CLI:
+
+```bash
+curl -X POST https://paperclip.gxl.ai/api/v1/claims/support \
+  -H "Authorization: Bearer $PAPERCLIP_API_KEY" -H "Content-Type: application/json" \
+  -d '{"claim": "Metformin improves survival in pancreatic cancer"}'
+```
+
+Keys are at <https://paperclip.gxl.ai/settings/keys>, and the secret is shown once.
+Without a key the endpoint returned HTTP 401 (measured). **No key is set here, so
+everything else in this subsection is from their docs and was not run.**
+
+| Field | Default | Meaning |
+|---|---|---|
+| `claim` | required | 3 to 590 characters; one specific, checkable claim |
+| `limit` | 25 | items per list, 1 to 200 |
+| `min_conf` | 0.8 | confidence floor, 0.5 to 0.99 |
+| `top_n` | 150 | passages retrieved per source before judging, 1 to 1000 |
+| `hybrid` | true | add keyword matches to the semantic search |
+| `include_context` | false | also return `context` and `evidence_offset` |
+| `include_neutral` | false | also return `neutral` |
+
+The response holds `id`, `claim`, `model_version`, `counts` (`retrieved`, `supports`,
+`refutes`, `neutral`, `supports_retracted`, `refutes_retracted`), `supports`,
+`refutes` and `timing_ms`. Each item has `evidence`, `confidence`, `weight`, `section`
+and `paper`. `paper` holds `id`, `source`, `title`, `journal`, `authors`,
+`authors_truncated`, `doi`, `pmid`, `date`, `year`, `citations`, `design`, `retracted`,
+`expression_of_concern`, `retraction_doi` and `retraction_notice`. Lists are sorted
+by `weight` (confidence, study design and citations, with retracted papers last).
+`counts` gives the totals before the `limit` cut. Errors: 400 invalid request, 401
+bad key, 429 rate limited, 503 temporarily unavailable.
+
+**The CLI's JSON is not the same shape.** The first `paper` object in a CLI result
+had no `source`, `authors`, `date` or `expression_of_concern`, and it added `url`. So
+an expression of concern may not be visible from the CLI: check the paper itself. The
+CLI result also adds `supports_more`, `refutes_more`, `judged`, `top_n`, `per_side`,
+`result_id` and `permalink`.
+
+### What the results can and cannot tell you
+
+Tested on three claims: the metformin claim, "Vaccines cause autism", and a
+computer-science claim that self-attention suffices for sequence transduction.
+
+- **A result is a lead, not a verification.** All 30 returned quotes matched the
+  returned `context` exactly at `evidence_offset`, so the quote is real text. The
+  judgment about it can be wrong. For the vaccine claim, the top "supports" item came
+  from *Defending Against Neural Fake News*, a machine-learning paper, and "refutes"
+  included a paper on self-affirmation and vaccination intentions, which by its title
+  is not about autism. For the self-attention claim, the top "refutes" item was the
+  sentence introducing a convolutional model, which says nothing against the claim.
+  Before citing anything, open the paper and quote it under the rules in
+  `verification.md`.
+- **Do not count votes.** `counts` are passages, not papers. Metformin scored 87 to
+  71 in favor, yet the top two "refutes" items are randomized trials that found no
+  benefit. One meta-analysis, PMC5517652, appears on **both** sides: it reports a
+  pooled survival gain and also says the two trials, which it calls more robust than
+  the cohort studies, showed none. Weigh design, population and recency yourself.
+- **`confidence` hardly separates results.** 19 of the 30 items scored exactly 0.986,
+  so read `paper.design` and the quote instead.
+- **`design` is a label from a model.** A paper titled as a systematic literature
+  review, and a survey of misinformation detection, came back `meta_analysis`. Check it before relying on it.
+- **An empty result means no evidence was retrieved, not that the claim is false.**
+  A nonsense claim returned 0 supports, 0 refutes and 265 neutral. Papers are ranked
+  by design and citations, so a new or little-cited paper sits low: use `-n 50 --deep`
+  before saying that no contrary evidence exists.
+- **A question also works.** The docs ask for a claim, not a question, but "Does
+  metformin improve survival in pancreatic cancer?" returned similar counts (91 and
+  64, against 87 and 71). A claim over 590 characters exits 2 with a message.
+- **Coverage is paperclip's.** Results come from the four full-text sources and
+  abstracts, so a paper outside them cannot appear.
+- **The CLI keeps results.** The API docs say queries are not stored, but
+  every CLI run returned a `result_id` and printed a `share:` link, and that link
+  answered HTTP 200 without login. The page body did not contain the claim text in
+  plain HTML, so whether a stranger can read the result was not determined. Do not
+  send an unpublished claim through the CLI until that is settled.
+
 ## Extraction quality (measured 2026-08-27)
 
 Checked `arx_1706.03762` (129 lines) and `arx_1205.7018` (1002 lines, 101

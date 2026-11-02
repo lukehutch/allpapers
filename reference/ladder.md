@@ -65,6 +65,9 @@ paperclip lookup arxiv 1706.03762
 paperclip search -s papers -n 250 "<one or two sentences describing the method>"
 ```
 
+To find papers for or against a specific claim, use `paperclip evidence "<claim>"`.
+Its results are leads to open and check, not verified quotes; see `paperclip.md`.
+
 **Look up arXiv papers by their arXiv ID, not by DOI.** paperclip indexes them
 under `arx_1706.03762`; the DataCite DOI arXiv mints (`10.48550/arXiv.1706.03762`)
 returns nothing.

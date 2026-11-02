@@ -110,7 +110,8 @@ FIELDS = {
 # have to sign up for?" completely rather than only for the keyed ones.
 KEYLESS = [
     ("paperclip", "browser sign-in on first use; free tier, then "
-                  "https://paperclip.gxl.ai/keys"),
+                  "https://paperclip.gxl.ai/keys; the REST evidence API needs "
+                  "a key"),
     ("arXiv", "no key, no registration"),
     ("Crossref", "no key; the email above joins the polite pool"),
     ("Europe PMC", "no key, no registration"),

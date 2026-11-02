@@ -75,6 +75,10 @@ quote from that paper that supports it, with a page, section, equation number or
 line locator. Copy-paste it; do not retype it. If a claim cannot be supported by a
 verbatim quote, flag it as unsupported.
 
+`paperclip evidence` is a way to find candidate papers, not a source of verified
+quotes. Its judgment of a passage can be wrong, so read the passage in the paper
+before recording it here.
+
 A line locator names the file its numbers count in, relative to
 `source/<citationKey>/`: `content.lines#L45-L52` for paperclip's text,
 `latex/main.tex#L45` for the LaTeX. The two number different lines, so a bare

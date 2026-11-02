@@ -643,7 +643,7 @@ and 3 without re-running anything.
 | File | Contents |
 |---|---|
 | `reference/ladder.md` | The priority ladder and what to do when a rung fails |
-| `reference/paperclip.md` | The CLI, its REST transport, and why to use the CLI |
+| `reference/paperclip.md` | The CLI, its REST transport, why to use the CLI, and `paperclip evidence`, which finds passages for or against a claim |
 | `reference/arxiv.md` | LaTeX source retrieval, payload shapes, HTML, the Atom API |
 | `reference/core.md` | CORE API v3, auth, rate limits, data-quality traps |
 | `reference/unpaywall.md` | Unpaywall API, response shape, the broken search endpoint |
@@ -788,7 +788,10 @@ and were not verified here.
   - *Free limit:* a free-tier usage cap; no number is published, and its guide
     (`paperclip skill`) states none. `paperclip sql` statements are cancelled
     after 15 seconds (measured 2026-10-06).
-  - *Raised by:* an API key — <https://paperclip.gxl.ai/keys>
+  - *Raised by:* an API key — <https://paperclip.gxl.ai/keys>. `paperclip evidence`
+    needs only the login; its REST API, `POST /api/v1/claims/support`, needs a key
+    and answers 401 without one, and it returns 429 when rate limited *(their docs;
+    no number given)*.
 
 - **Crossref**
   - *Key:* none.
