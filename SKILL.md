@@ -50,6 +50,7 @@ that gets committed.
 | Credential | Cost | What it buys |
 |---|---|---|
 | **email** | — | Required. Unpaywall 422s without it; polite pools elsewhere |
+| **paperclip key** | free account; Pro $200/month | Required for paperclip's REST API, including the evidence API. The CLI needs only the browser login. Pro, not the key, raises limits. Optional |
 | **CORE key** | free, instant | Without it CORE returns `"Not available for public API users."` instead of full text, and allows 10 requests per 10 minutes |
 | **OpenAlex key** | free, instant | Raises the daily budget from $0.10 to $1, and is **required** to download OpenAlex's cached GROBID TEI XML — a structured parse existing for ~51M works |
 | **Gemini key** | free tier | Enables `allpapers-search --gemini`, grounded web search over the open web. Optional |
@@ -77,8 +78,16 @@ curl -fsSL https://paperclip.gxl.ai/install.sh | bash
 paperclip login          # browser sign-in
 ```
 
-If the user exhausts paperclip's free usage, they can get an API key at
-<https://paperclip.gxl.ai/keys> and set `PAPERCLIP_API_KEY`.
+The browser login is enough for the CLI. An API key from
+<https://paperclip.gxl.ai/keys> is needed only for the REST API or a machine with no
+browser. It does not raise limits, which belong to the account: only the Pro plan
+does ($200/month: 10,000 map documents a day instead of 100, 50 searches and greps
+started per minute instead of 25, priority queue). Save a key and export it:
+
+```bash
+scripts/allpapers-setup --set paperclip_api_key=gxl_...
+eval "$(scripts/allpapers-setup --env)"
+```
 
 ## Every web fetch sends a Chrome User-Agent
 
@@ -205,7 +214,8 @@ citation counts. Add `-n 50 --deep` before saying that no contrary evidence exis
 It is a way to find papers, not a verification: measured, it returned off-topic
 passages on both sides, so open each paper and quote it before citing it, and do not
 count passages as votes. Do not send an unpublished claim through it, because the CLI
-saves each result and prints a share link. See `reference/paperclip.md`.
+saves each result and prints a share link; the REST API with a key does not store
+queries *(their docs)*. See `reference/paperclip.md`.
 
 Add `--gemini` to run Gemini grounded web search alongside paperclip, in parallel.
 It reaches the open web — preprints, theses, lab pages, standards documents —

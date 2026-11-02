@@ -32,8 +32,44 @@ paperclip login                    # browser sign-in
 paperclip --version                # verified against 0.7.38
 ```
 
-Non-interactively, set `PAPERCLIP_API_KEY` or pass `--api-key`. If the user
-exhausts the free allowance, keys are at <https://paperclip.gxl.ai/keys>.
+On a machine with no browser, and for the REST API, use an API key from
+<https://paperclip.gxl.ai/keys>. The CLI never stores a key: it reads
+`PAPERCLIP_API_KEY` or `--api-key`, and `--api-key` goes before the subcommand.
+
+```bash
+scripts/allpapers-setup --set paperclip_api_key=gxl_...   # saved with mode 0600
+eval "$(scripts/allpapers-setup --env)"                   # exports it to this shell
+```
+
+Add the `eval` line, with the script's full path, to `~/.bashrc` so every shell has
+the key. Until it is exported, `allpapers-setup --check` reports `saved key NOT IN
+USE`, and neither the CLI nor the scripts that call it can see the key.
+
+### Plans and limits
+
+| | No account | Free account | Pro plan, $200/month |
+|---|---|---|---|
+| Sign-in | none | browser login or API key | browser login or API key |
+| CLI | fails: `Not authenticated` (measured) | yes | yes |
+| Map documents per day | none | 100 | 10,000 |
+| Searches started per minute | none | 25 | 50 |
+| Corpus-wide greps started per minute | none | 25 | 50 |
+| Queue for searches and greps | none | standard | priority |
+| Datasets, rows shown | none | 5 in total, 50 rows | 20 per month, 200 rows |
+
+The figures come from the plan table in the site's JavaScript, read 2026-11-02;
+`/pricing` shows nothing in plain HTML. They may change, and the price is the current
+one. **There are two plans, not three.** A browser login and an API key are two ways
+into the same account, and limits are per account, so a key does not raise them
+*(their docs)*. Only Pro does. The one way in with no account is the web evidence
+page, which GXL limits by a hash of the IP address *(their docs; not run)*.
+
+Every account also has these limits *(their docs)*, shared across all its sessions
+and machines: 120 requests per second, 10 short commands in flight, 8 long commands
+(`map`, `verify`) in flight. The documents quota counts `map` and `verify` and resets
+at midnight UTC. Above a limit the server returns 429, and the CLI retries with
+backoff, so a limit can look like a slow query. Nothing reports the remaining quota
+without spending a call, and the CLI does not show which plan an account is on.
 
 ## Use the CLI, not the REST API
 
@@ -181,9 +217,19 @@ curl -X POST https://paperclip.gxl.ai/api/v1/claims/support \
   -d '{"claim": "Metformin improves survival in pancreatic cancer"}'
 ```
 
-Keys are at <https://paperclip.gxl.ai/settings/keys>, and the secret is shown once.
-Without a key the endpoint returned HTTP 401 (measured). **No key is set here, so
-everything else in this subsection is from their docs and was not run.**
+**The REST API needs an API key; the CLI does not.** Measured 2026-11-02:
+
+| Route | Credentials | Result |
+|---|---|---|
+| `paperclip evidence` | browser login, no key | works |
+| `paperclip evidence` | none | fails: `Not authenticated` |
+| `POST /api/v1/claims/support` | none | HTTP 401 |
+| `POST /api/v1/claims/support` | key from a free account | not run |
+
+Keys are at <https://paperclip.gxl.ai/keys>, and the secret is shown once. The
+header can be `Authorization: Bearer` or `X-API-Key`. The full schema is at
+<https://paperclip.gxl.ai/api/v1/openapi.json>. **No key is set here, so the rest of
+this subsection is from their docs and was not run.**
 
 | Field | Default | Meaning |
 |---|---|---|
@@ -202,8 +248,8 @@ and `paper`. `paper` holds `id`, `source`, `title`, `journal`, `authors`,
 `authors_truncated`, `doi`, `pmid`, `date`, `year`, `citations`, `design`, `retracted`,
 `expression_of_concern`, `retraction_doi` and `retraction_notice`. Lists are sorted
 by `weight` (confidence, study design and citations, with retracted papers last).
-`counts` gives the totals before the `limit` cut. Errors: 400 invalid request, 401
-bad key, 429 rate limited, 503 temporarily unavailable.
+`counts` gives the totals before the `limit` cut. Errors: 400 and 422 invalid request,
+401 bad key, 429 rate limited, 502 and 503 temporarily unavailable.
 
 **The CLI's JSON is not the same shape.** The first `paper` object in a CLI result
 had no `source`, `authors`, `date` or `expression_of_concern`, and it added `url`. So
@@ -243,11 +289,13 @@ computer-science claim that self-attention suffices for sequence transduction.
   64, against 87 and 71). A claim over 590 characters exits 2 with a message.
 - **Coverage is paperclip's.** Results come from the four full-text sources and
   abstracts, so a paper outside them cannot appear.
-- **The CLI keeps results.** The API docs say queries are not stored, but
-  every CLI run returned a `result_id` and printed a `share:` link, and that link
-  answered HTTP 200 without login. The page body did not contain the claim text in
-  plain HTML, so whether a stranger can read the result was not determined. Do not
-  send an unpublished claim through the CLI until that is settled.
+- **CLI results can be read by anyone with the link.** Every CLI run returned a
+  `result_id` and printed a `share:` link, which answered HTTP 200 without login.
+  GXL's FAQ says queries on the web page are logged and that anyone with such a link
+  can see the results. It does not mention the CLI, so treating the CLI the same way
+  is inferred. The FAQ also says queries sent to the API with a key are not stored
+  unless the request asks for a permalink. For an unpublished claim, use the REST API
+  with a key, or tick "Don't store query" on the web page while logged in.
 
 ## Extraction quality (measured 2026-08-27)
 

@@ -204,7 +204,6 @@ openalex_api_key          : MISSING (optional)
                             register: https://openalex.org/users  (free, instant)
 ...
 No key or registration needed for:
-  paperclip              browser sign-in on first use; free tier, then https://paperclip.gxl.ai/keys
   arXiv                  no key, no registration
   Crossref               no key; the email above joins the polite pool
   ...
@@ -308,9 +307,20 @@ These services need no key and no registration at all: **arXiv**, **Crossref**
 **OpenAIRE**, **LibGen** (`json.php` is open), **Sci-Hub**, and **Anna's Archive**
 for the `/dyn/` JSON endpoints — a donor account at
 <https://annas-archive.org/donate> unlocks fast downloads but nothing here needs
-it. **paperclip** signs in through the browser on first use rather than taking a
-key, and only needs one from <https://paperclip.gxl.ai/keys> if you exhaust the
-free tier.
+it.
+
+**paperclip** needs a free account. The CLI signs in through the browser on first
+use, so `paperclip_api_key` is optional. It is required for the REST API, including
+the evidence API, and on a machine with no browser. Create one at
+<https://paperclip.gxl.ai/keys>, then save and export it:
+
+```bash
+scripts/allpapers-setup --set paperclip_api_key=gxl_...
+eval "$(scripts/allpapers-setup --env)"     # add to ~/.bashrc with the full path
+```
+
+The export is required, because the paperclip CLI reads a key only from
+`PAPERCLIP_API_KEY` or `--api-key`.
 
 ### CORE's tiers — a key is not the whole story
 
@@ -344,9 +354,9 @@ curl -fsSL https://paperclip.gxl.ai/install.sh | bash
 paperclip login
 ```
 
-If its free usage is exhausted, an API key from <https://paperclip.gxl.ai/keys>
-goes in `PAPERCLIP_API_KEY`. Exhaustion is a fall-through condition, not an error:
-the ladder continues at the next rung.
+An API key does not raise paperclip's limits; only the Pro plan does. Reaching a
+limit is a fall-through condition, not an error: the ladder continues at the next
+rung.
 
 ## How it works
 
@@ -785,13 +795,17 @@ and were not verified here.
 - **paperclip**
   - *Key:* browser OAuth login; `PAPERCLIP_API_KEY` or `--api-key` for
     non-interactive use.
-  - *Free limit:* a free-tier usage cap; no number is published, and its guide
-    (`paperclip skill`) states none. `paperclip sql` statements are cancelled
-    after 15 seconds (measured 2026-10-06).
-  - *Raised by:* an API key — <https://paperclip.gxl.ai/keys>. `paperclip evidence`
-    needs only the login; its REST API, `POST /api/v1/claims/support`, needs a key
-    and answers 401 without one, and it returns 429 when rate limited *(their docs;
-    no number given)*.
+  - *Free limit:* 100 map documents a day, and 25 searches and 25 corpus-wide greps
+    started per minute, on the standard queue *(their site, 2026-11-02)*. Limits are
+    per account, so a browser login and an API key share them. `paperclip sql`
+    statements are cancelled after 15 seconds (measured 2026-10-06).
+  - *Raised by:* the Pro plan, currently $200/month: 10,000 map documents a day, 50
+    searches and 50 greps started per minute, priority queue
+    <https://paperclip.gxl.ai/pricing>. An API key does not raise limits.
+  - *Evidence:* `paperclip evidence` needs only the login. Its REST API,
+    `POST /api/v1/claims/support`, needs a key and answers 401 without one (measured).
+    A call with a key from a free account has not been run. It returns 429 when rate
+    limited *(their docs; no number given)*.
 
 - **Crossref**
   - *Key:* none.

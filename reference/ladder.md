@@ -79,7 +79,8 @@ usage allowance is exhausted; `paperclip` is not installed and the user does not
 want to install it; or the command errors or times out. A rate-limit or quota
 message is a fall-through, not a failure to report — keep going down the ladder
 and mention it at the end. If the user is hitting the limit often, point them at
-<https://paperclip.gxl.ai/keys> for an API key.
+the Pro plan, <https://paperclip.gxl.ai/pricing>. An API key does not raise limits,
+which belong to the account.
 
 `lookup` exits 0 even when it found nothing, so gate on the output text
 containing a document ID, never on the exit code.

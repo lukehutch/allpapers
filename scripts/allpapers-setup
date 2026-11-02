@@ -34,6 +34,19 @@ FIELDS = {
         "no registration — any address you own. https://unpaywall.org/products/api "
         "documents the requirement",
     ),
+    "paperclip_api_key": (
+        False, "PAPERCLIP_API_KEY",
+        "paperclip: optional, since browser sign-in covers the CLI. Required for "
+        "its REST API, including the evidence API, and on a machine with no "
+        "browser. The CLI reads it only from the environment, so export it with "
+        "--env",
+        "paperclip's REST API and use without a browser. It does not raise "
+        "limits, which belong to the account",
+        "free account: https://paperclip.gxl.ai/keys  100 map documents/day, 25 "
+        "searches and 25 corpus-wide greps started per minute. Pro plan, "
+        "$200/month: https://paperclip.gxl.ai/pricing  10,000 map documents/day, "
+        "50 of each per minute, priority queue",
+    ),
     "core_api_key": (
         False, "CORE_API_KEY",
         "CORE: optional, but anonymous CORE returns no fullText field",
@@ -109,9 +122,6 @@ FIELDS = {
 # Services that need no key at all, listed so --check answers "what do I still
 # have to sign up for?" completely rather than only for the keyed ones.
 KEYLESS = [
-    ("paperclip", "browser sign-in on first use; free tier, then "
-                  "https://paperclip.gxl.ai/keys; the REST evidence API needs "
-                  "a key"),
     ("arXiv", "no key, no registration"),
     ("Crossref", "no key; the email above joins the polite pool"),
     ("Europe PMC", "no key, no registration"),
@@ -161,24 +171,27 @@ def save(cfg: dict) -> None:
             print(f"warning: could not mirror into {SCIHUB_CONFIG}: {exc}", file=sys.stderr)
 
 
-def paperclip_state() -> str:
+def paperclip_state(cfg: dict) -> str:
     """Report paperclip install + login state without printing any token."""
     if not shutil.which("paperclip"):
         return ("NOT INSTALLED — curl -fsSL https://paperclip.gxl.ai/install.sh | bash")
     if os.getenv("PAPERCLIP_API_KEY"):
         return "OK (PAPERCLIP_API_KEY set)"
+    unused = ""
+    if cfg.get("paperclip_api_key"):
+        unused = ('; saved key NOT IN USE, run: eval "$(allpapers-setup --env)"')
     if (Path.home() / ".paperclip" / "credentials.json").exists():
         try:
             ver = subprocess.run(["paperclip", "--version"], capture_output=True,
                                  text=True, timeout=15).stdout.strip()
         except (OSError, subprocess.SubprocessError):
             ver = "installed"
-        return f"OK (logged in; {ver})"
-    return "installed but NOT LOGGED IN — run: paperclip login"
+        return f"OK (logged in; {ver}){unused}"
+    return f"installed but NOT LOGGED IN — run: paperclip login{unused}"
 
 
 def check(cfg: dict) -> int:
-    print(f"paperclip                 : {paperclip_state()}")
+    print(f"paperclip                 : {paperclip_state(cfg)}")
     missing_essential = False
     for key, (essential, env, service, unlocks, where) in FIELDS.items():
         tag = "required" if essential else "optional"
@@ -241,7 +254,7 @@ def main() -> int:
 
     # Interactive: show every service and where to register, prompt only for
     # what is still missing.
-    print(f"paperclip: {paperclip_state()}\n")
+    print(f"paperclip: {paperclip_state(cfg)}\n")
     for key, (essential, _, service, unlocks, where) in FIELDS.items():
         tag = "required" if essential else "optional"
         print(f"{key} ({tag}) — used by: {service}")
