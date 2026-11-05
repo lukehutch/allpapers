@@ -37,11 +37,11 @@ FIELDS = {
     ),
     "paperclip_api_key": (
         False, "PAPERCLIP_API_KEY",
-        "paperclip: optional, for scripted REST calls; browser sign-in covers the "
-        "CLI. Do not export it: the CLI fails on every command when it has a key "
-        "(0.8.13). Pass it to a single call with --get",
-        "paperclip's REST API without the login token. It does not raise limits, "
-        "which belong to the account",
+        "paperclip: optional, since browser sign-in covers the CLI. For REST calls "
+        "and machines with no browser. The CLI reads it only from the environment "
+        "or --api-key, and needs version 0.8.14 or later to use it",
+        "paperclip's REST API and CLI use without a browser. It does not raise "
+        "limits, which belong to the account",
         "free account: https://paperclip.gxl.ai/keys  100 map documents/day, 25 "
         "searches and 25 corpus-wide greps started per minute. Pro plan, "
         "$200/month: https://paperclip.gxl.ai/pricing  10,000 map documents/day, "
@@ -175,17 +175,20 @@ def paperclip_state() -> str:
     """Report paperclip install + login state without printing any token."""
     if not shutil.which("paperclip"):
         return ("NOT INSTALLED — curl -fsSL https://paperclip.gxl.ai/install.sh | bash")
+    try:
+        ver = subprocess.run(["paperclip", "--version"], capture_output=True,
+                             text=True, timeout=15).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        ver = "installed"
     if os.getenv("PAPERCLIP_API_KEY"):
-        return ("BROKEN — PAPERCLIP_API_KEY is set, and the CLI fails on every "
-                "command with a key (0.8.13). Run: unset PAPERCLIP_API_KEY")
+        # Before 0.8.14 every CLI command failed when it was given a key.
+        number = ver.rsplit(" ", 1)[-1].split(".")
+        if all(p.isdigit() for p in number) and [int(p) for p in number] < [0, 8, 14]:
+            return f"BROKEN — PAPERCLIP_API_KEY is set, and {ver} fails with a key. Run: paperclip update"
+        return f"OK (PAPERCLIP_API_KEY set; {ver})"
     if (Path.home() / ".paperclip" / "credentials.json").exists():
-        try:
-            ver = subprocess.run(["paperclip", "--version"], capture_output=True,
-                                 text=True, timeout=15).stdout.strip()
-        except (OSError, subprocess.SubprocessError):
-            ver = "installed"
         return f"OK (logged in; {ver})"
-    return "installed but NOT LOGGED IN — run: paperclip login"
+    return "installed but NOT LOGGED IN — run: paperclip login, or set PAPERCLIP_API_KEY"
 
 
 def check(cfg: dict) -> int:
@@ -225,8 +228,7 @@ def main() -> int:
 
     if args and args[0] == "--env":
         for key, (_, env, _, _, _) in FIELDS.items():
-            # The paperclip CLI fails on every command if it sees this key.
-            if cfg.get(key) and key != "paperclip_api_key":
+            if cfg.get(key):
                 print(f"export {env}={cfg[key]!r}")
         return 0
 

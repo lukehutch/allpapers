@@ -310,17 +310,18 @@ for the `/dyn/` JSON endpoints — a donor account at
 it.
 
 **paperclip** needs a free account, and nothing works without one. The CLI signs in
-through the browser on first use. `paperclip_api_key` is optional and is for scripted
-REST calls. Create one at <https://paperclip.gxl.ai/keys>, and pass it to each call:
+through the browser on first use. `paperclip_api_key` is optional. It is for REST
+calls and for machines with no browser, and the CLI needs version 0.8.14 or later to
+use it. Create one at <https://paperclip.gxl.ai/keys>:
 
 ```bash
 scripts/allpapers-setup --set paperclip_api_key=gxl_...
-curl -H "X-API-Key: $(scripts/allpapers-setup --get paperclip_api_key)" ...
+eval "$(scripts/allpapers-setup --env)"     # for the CLI; add to ~/.bashrc with the full path
+curl -H "X-API-Key: $(scripts/allpapers-setup --get paperclip_api_key)" ...   # for REST
 ```
 
-Do not export it as `PAPERCLIP_API_KEY`: with a key, every paperclip CLI command fails
-with `Something went wrong` (measured on 0.8.13). `allpapers-setup --env` leaves it
-out, and `--check` reports it as `BROKEN` if it is set.
+The CLI reads a key only from `PAPERCLIP_API_KEY` or `--api-key`, and a key there
+takes priority over the login.
 
 ### CORE's tiers — a key is not the whole story
 
@@ -793,9 +794,9 @@ no rate-limit headers; values marked *(not measured)* are recorded for completen
 and were not verified here.
 
 - **paperclip**
-  - *Key:* browser OAuth login for the CLI. An API key works for REST calls but
-    makes every CLI command fail (measured on 0.8.13), so do not set
-    `PAPERCLIP_API_KEY`. With no credentials, the CLI and the REST API all fail.
+  - *Key:* browser OAuth login, or an API key in `PAPERCLIP_API_KEY` or `--api-key`.
+    The CLI needs version 0.8.14 or later to use a key. With no credentials, the CLI
+    and the REST API all fail.
   - *Free limit:* 100 map documents a day, and 25 searches and 25 corpus-wide greps
     started per minute, on the standard queue *(their site, 2026-11-02)*. Limits are
     per account, so a browser login and an API key share them. `paperclip sql`
@@ -803,7 +804,7 @@ and were not verified here.
   - *Raised by:* the Pro plan, currently $200/month: 10,000 map documents a day, 50
     searches and 50 greps started per minute, priority queue
     <https://paperclip.gxl.ai/pricing>. An API key does not raise limits.
-  - *Evidence:* `paperclip evidence` needs only the login. Its REST API,
+  - *Evidence:* `paperclip evidence` works with the login or a key. Its REST API,
     `POST /api/v1/claims/support`, treats credentials as `/search` does: 401 with
     none, 200 with the login token or a free account's key (measured). It returns
     429 when rate limited *(their docs; no number given)*.

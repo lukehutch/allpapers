@@ -32,31 +32,32 @@ paperclip login                    # browser sign-in
 paperclip --version                # verified against 0.7.38
 ```
 
-**Use the browser login for the CLI, and do not export an API key.** With a key, by
-`PAPERCLIP_API_KEY` or `--api-key`, every CLI command tested (`search`, `lookup`,
-`grep`, `evidence`) fails with `Something went wrong. Please try again`, while
-`paperclip config` still reports `Auth: ✓ API key (env)`. Measured 2026-11-02 on
-0.8.13, the newest release. The key is valid, and REST calls with it succeed. The CLI
-sends key-authenticated commands to the MCP tool `paperclip` (`client.py:588`), and
-the server answers `Unknown tool 'paperclip'`, because it now lists separate tools
-such as `search` and `grep`. So `--check` reports a `PAPERCLIP_API_KEY` in the
-environment as `BROKEN`, and `--env` leaves the key out. Until this is fixed, a
-machine with no browser cannot use the CLI.
-
-Save a key from <https://paperclip.gxl.ai/keys> for REST calls, and pass it to each
-call:
+The browser login is all the CLI needs on a machine with a browser. On a machine with
+no browser, and for REST calls, use an API key from <https://paperclip.gxl.ai/keys>.
+The CLI never stores a key: it reads `PAPERCLIP_API_KEY` or `--api-key`, and
+`--api-key` goes before the subcommand. A key in the environment takes priority over
+the login (`paperclip config` shows `Auth: ✓ API key (env)`).
 
 ```bash
 scripts/allpapers-setup --set paperclip_api_key=gxl_...   # saved with mode 0600
-curl -H "X-API-Key: $(scripts/allpapers-setup --get paperclip_api_key)" ...
+eval "$(scripts/allpapers-setup --env)"                   # for the CLI, in this shell
+curl -H "X-API-Key: $(scripts/allpapers-setup --get paperclip_api_key)" ...   # one REST call
 ```
+
+**A key needs CLI 0.8.14 or later.** On 0.8.13, every command given a key failed with
+`Something went wrong. Please try again`, because the CLI called an MCP tool the
+server no longer listed. GXL fixed this in 0.8.14. Measured 2026-11-05 on 0.8.14 with
+a key and no login files: `search`, `lookup`, `ls`, `grep`, `head`, `cat`, `sql`,
+`results` and `evidence` all work, by the variable; `search` also works by the flag.
+If a key fails with that message, run `paperclip update`. `allpapers-setup --check`
+reports this case as `BROKEN`.
 
 ### Plans and limits
 
 | | No account | Free account | Pro plan, $200/month |
 |---|---|---|---|
 | Credentials | none | browser login or API key | browser login or API key |
-| CLI | fails: `Not authenticated` (measured) | yes, with the browser login | yes, with the browser login |
+| CLI | fails: `Not authenticated` (measured) | yes (measured) | yes |
 | REST API, including evidence | fails: HTTP 401 (measured) | yes (measured) | yes |
 | Map documents per day | none | 100 | 10,000 |
 | Searches started per minute | none | 25 | 50 |
@@ -226,14 +227,14 @@ curl -X POST https://paperclip.gxl.ai/api/v1/claims/support \
 ```
 
 **The evidence API needs credentials, not specifically a key, and it behaves like
-the main API.** Measured 2026-11-02 on a free account:
+the main API.** Measured 2026-11-02 and 2026-11-05 on a free account:
 
 | Credentials | `POST /search` | `POST /claims/support` | `paperclip evidence` |
 |---|---|---|---|
 | none | 401 | 401 | fails: `Not authenticated` |
 | invalid key | not run | 401 | not run |
 | browser login token, no key | 200 | 200 | works |
-| API key | 200 | 200 | fails (see "Install and auth") |
+| API key | 200 | 200 | works on 0.8.14 or later |
 
 No part of the API works with no credentials. Use a key for REST calls: it is the
 documented method, while the login token is short-lived and the docs do not mention
@@ -291,6 +292,9 @@ computer-science claim that self-attention suffices for sequence transduction.
   sentence introducing a convolutional model, which says nothing against the claim.
   Before citing anything, open the paper and quote it under the rules in
   `verification.md`.
+- **Counts change over time.** The same metformin request gave 254 passages split 87,
+  71 and 96 on 2026-11-02, and 255 split 78, 68 and 109 on 2026-11-05, with the same
+  `model_version` on both days. CLI and REST agreed on each day.
 - **Do not count votes.** `counts` are passages, not papers. Metformin scored 87 to
   71 in favor, yet the top two "refutes" items are randomized trials that found no
   benefit. One meta-analysis, PMC5517652, appears on **both** sides: it reports a
@@ -310,7 +314,8 @@ computer-science claim that self-attention suffices for sequence transduction.
 - **Coverage is paperclip's.** Results come from the four full-text sources and
   abstracts, so a paper outside them cannot appear.
 - **CLI results can be read by anyone with the link.** Every CLI run returned a
-  `result_id` and printed a `share:` link, which answered HTTP 200 without login.
+  `result_id` and printed a `share:` link, which answered HTTP 200 without login. A
+  CLI run with an API key does the same (measured); a REST call does not.
   GXL's FAQ says queries on the web page are logged and that anyone with such a link
   can see the results. It does not mention the CLI, so treating the CLI the same way
   is inferred. The FAQ also says queries sent to the API with a key are not stored

@@ -50,7 +50,7 @@ that gets committed.
 | Credential | Cost | What it buys |
 |---|---|---|
 | **email** | — | Required. Unpaywall 422s without it; polite pools elsewhere |
-| **paperclip key** | free account; Pro $200/month | For scripted REST calls, including the evidence API. Never export it, because the CLI fails with a key. The CLI needs only the browser login. Pro, not the key, raises limits. Optional |
+| **paperclip key** | free account; Pro $200/month | For REST calls, including the evidence API, and CLI use with no browser (needs CLI 0.8.14 or later). Otherwise the browser login is enough. Pro, not the key, raises limits. Optional |
 | **CORE key** | free, instant | Without it CORE returns `"Not available for public API users."` instead of full text, and allows 10 requests per 10 minutes |
 | **OpenAlex key** | free, instant | Raises the daily budget from $0.10 to $1, and is **required** to download OpenAlex's cached GROBID TEI XML — a structured parse existing for ~51M works |
 | **Gemini key** | free tier | Enables `allpapers-search --gemini`, grounded web search over the open web. Optional |
@@ -78,14 +78,15 @@ curl -fsSL https://paperclip.gxl.ai/install.sh | bash
 paperclip login          # browser sign-in
 ```
 
-The browser login is all the CLI needs. **Do not set `PAPERCLIP_API_KEY`:** with a
-key, every CLI command fails with `Something went wrong` (0.8.13). A key from
-<https://paperclip.gxl.ai/keys> is for scripted REST calls, including the evidence
-API, and goes in one call at a time:
+The browser login is all the CLI needs on a machine with a browser. A key from
+<https://paperclip.gxl.ai/keys> is for REST calls, including the evidence API, and for
+machines with no browser. The CLI needs version 0.8.14 or later to use a key; if a key
+gives `Something went wrong`, run `paperclip update`.
 
 ```bash
 scripts/allpapers-setup --set paperclip_api_key=gxl_...
-curl -H "X-API-Key: $(scripts/allpapers-setup --get paperclip_api_key)" ...
+eval "$(scripts/allpapers-setup --env)"       # for the CLI
+curl -H "X-API-Key: $(scripts/allpapers-setup --get paperclip_api_key)" ...   # for REST
 ```
 
 A key does not raise limits, which belong to the account. Only the Pro plan does
