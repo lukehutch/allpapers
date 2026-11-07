@@ -34,7 +34,11 @@ scripts/allpapers-setup --check
 
 Exit 0 means everything essential is configured. Exit 1 means an email address is
 missing — Unpaywall's API rejects requests without one, and it puts OpenAlex,
-Crossref and NCBI in their polite pools.
+Crossref and NCBI in their polite pools. Crossref does not need an
+email: its API answers every request without one, and the address only moves the
+request into the polite pool. When you call Crossref by hand, as in
+`curl -s -A "<Chrome UA>" https://api.crossref.org/works/<doi>`, send no
+email, and never put the user's address in a request unless they say so.
 
 If something is missing, **ask the user for it in conversation**, then store it:
 
@@ -49,7 +53,7 @@ that gets committed.
 
 | Credential | Cost | What it buys |
 |---|---|---|
-| **email** | — | Required. Unpaywall 422s without it; polite pools elsewhere |
+| **email** | — | Required. Unpaywall 422s without it; polite pools elsewhere. Crossref works without it |
 | **paperclip key** | free account; Pro $200/month | For REST calls, including the evidence API, and CLI use with no browser (needs CLI 0.8.14 or later). Otherwise the browser login is enough. Pro, not the key, raises limits. Optional |
 | **CORE key** | free, instant | Without it CORE returns `"Not available for public API users."` instead of full text, and allows 10 requests per 10 minutes |
 | **OpenAlex key** | free, instant | Raises the daily budget from $0.10 to $1, and is **required** to download OpenAlex's cached GROBID TEI XML — a structured parse existing for ~51M works |
