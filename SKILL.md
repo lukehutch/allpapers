@@ -82,6 +82,23 @@ curl -fsSL https://paperclip.gxl.ai/install.sh | bash
 paperclip login          # browser sign-in
 ```
 
+**If paperclip is installed, run `paperclip update` before the first paperclip
+command of each calendar day**, so the CLI is the latest version. The stamp file
+records the last update date, because a new session cannot otherwise know whether
+one already ran today:
+
+```bash
+stamp=~/.config/allpapers/paperclip-update-date
+if command -v paperclip >/dev/null && [ "$(cat "$stamp" 2>/dev/null)" != "$(date +%F)" ]; then
+  paperclip update && date +%F > "$stamp"
+fi
+```
+
+If the update fails, the stamp is not written and the next call tries again. The
+update also refreshes paperclip's own agent skills. On 0.8.16 that touched only
+`~/.cursor/skills/paperclip/` (measured 2026-11-08); if `~/.claude/skills/paperclip/`
+reappears after an update, delete it, as `reference/paperclip.md` explains.
+
 The browser login is all the CLI needs on a machine with a browser. A key from
 <https://paperclip.gxl.ai/keys> is for REST calls, including the evidence API, and for
 machines with no browser. The CLI needs version 0.8.14 or later to use a key; if a key

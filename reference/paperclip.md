@@ -32,6 +32,9 @@ paperclip login                    # browser sign-in
 paperclip --version                # verified against 0.7.38
 ```
 
+Run `paperclip update` before the first paperclip command of each calendar day; the
+stamp-file snippet for this is in `SKILL.md` under **First run**.
+
 The browser login is all the CLI needs on a machine with a browser. On a machine with
 no browser, and for REST calls, use an API key from <https://paperclip.gxl.ai/keys>.
 The CLI never stores a key: it reads `PAPERCLIP_API_KEY` or `--api-key`, and
@@ -483,4 +486,5 @@ print-era paper there is no text route at all: read the PDF visually.
 - `paperclip update` regenerates `.claude/skills/paperclip/SKILL.md`, so never
   hand-edit that file — and note that this recreates the standalone `paperclip`
   skill that `allpapers` replaced. If it reappears after an update, delete
-  `~/.claude/skills/paperclip/` again.
+  `~/.claude/skills/paperclip/` again. (On 0.8.16, `paperclip update` refreshed
+  only `~/.cursor/skills/paperclip/SKILL.md`, measured 2026-11-08.)
