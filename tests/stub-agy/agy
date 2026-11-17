@@ -1,0 +1,13 @@
+#!/bin/bash
+# A stand-in for agy, for tests/agy-model.sh: answers with the model it was given by --model, or,
+# with STUB_AGY_FAIL set, fails as agy does for a model it does not know.
+model=
+while [ $# -gt 0 ]; do
+  case $1 in --model) model=$2; shift ;; esac
+  shift
+done
+if [ -n "${STUB_AGY_FAIL:-}" ]; then
+  echo "error: invalid model selection (--model \"$model\")" >&2
+  exit 1
+fi
+echo "Stub answer from model $model: https://example.org/paper"

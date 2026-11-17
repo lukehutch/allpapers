@@ -519,6 +519,9 @@ def main() -> int:
                 gem = gfut.result()
             except Exception as e:                      # noqa: BLE001
                 gem = {"error": str(e)}
+            # A failure carries no model, and the header then named the API
+            # backend's GEMINI_MODEL even when agy was asked for AGY_MODEL.
+            gem.setdefault("model", AGY_MODEL if backend == "agy" else GEMINI_MODEL)
 
     rows = [merged[k] for k in order]
     # More rankers agreeing is a stronger signal than any single ranker's order.
@@ -558,7 +561,7 @@ def main() -> int:
         # flush: the failure below goes to stderr, and an unflushed stdout
         # header would print after it.
         print("\n--- Gemini grounded web search "
-              f"({gem.get('model', GEMINI_MODEL)}) ---", flush=True)
+              f"({gem['model']}) ---", flush=True)
         if gem.get("error"):
             print(f"  failed: {gem['error']}", file=sys.stderr)
         else:
