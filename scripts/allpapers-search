@@ -193,9 +193,9 @@ GEMINI_PROMPT = (
     "Request: ")
 
 
-# `agy models` on 2026-08-26 listed gemini-3.7-flash-{high,medium,low} as the
-# newest Flash tier. High is the right one here: a literature sweep is worth more
-# reasoning than a chat reply.
+# gemini-4-carbon-medium is the default since 2026-11-17 (the author's choice);
+# gemini-3.7-flash-high, the earlier default, is no longer offered. An unknown
+# model makes agy exit 1 with its list of models, which is printed as the failure.
 AGY_MODEL = os.getenv("ALLPAPERS_AGY_MODEL", "gemini-4-carbon-medium")
 
 # agy asks gnome-keyring for its stored credentials, and the unlock dialog steals
