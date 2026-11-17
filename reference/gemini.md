@@ -77,12 +77,11 @@ the same kind of grounded question, using the user's existing Antigravity login
 rather than a billed API key. `allpapers-search` calls it as
 
 ```bash
-agy -p "<the same grounded-search prompt> <query>" --model gemini-3.7-flash-high
+agy -p "<the same grounded-search prompt> <query>" --model gemini-4-carbon-medium
 ```
 
-`gemini-3.7-flash-high` was the newest Flash tier `agy models` listed on
-2026-08-26; `ALLPAPERS_AGY_MODEL` overrides it. High rather than medium or low
-because a literature sweep is worth more reasoning than a chat reply.
+`gemini-4-carbon-medium` is the default since 2026-11-17 (the author's choice;
+`gemini-3.7-flash-high` is no longer offered). `ALLPAPERS_AGY_MODEL` overrides it.
 
 **It hangs if you run it plainly from a script.** `agy` asks gnome-keyring for its
 stored credentials; the unlock dialog takes the terminal and the run blocks
@@ -93,7 +92,7 @@ no display makes it fall back to its own token store:
 export DISPLAY=""
 export SSH_CLIENT="127.0.0.1 12345 22"
 export SSH_TTY="/dev/pts/0"
-agy -p "your prompt" --model gemini-3.7-flash-high
+agy -p "your prompt" --model gemini-4-carbon-medium
 ```
 
 `allpapers-search` sets all three in the child environment, so

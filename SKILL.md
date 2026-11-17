@@ -264,7 +264,7 @@ that forces a search, or use the corpus.
 The `agy` route matters because a Gemini API key bills a Google Cloud account —
 Antigravity or Gemini subscription credits do **not** cover it. A user who has
 signed into `agy` already has grounded Google search with nothing more to pay.
-The model is `gemini-3.7-flash-high` (override with `ALLPAPERS_AGY_MODEL`).
+The model is `gemini-4-carbon-medium` (override with `ALLPAPERS_AGY_MODEL`).
 
 **`agy` hangs if you run it plainly from a script.** It asks gnome-keyring for
 its stored credentials, the unlock dialog takes the terminal, and the run blocks
@@ -275,7 +275,7 @@ and it falls back to its own token store:
 export DISPLAY=""
 export SSH_CLIENT="127.0.0.1 12345 22"
 export SSH_TTY="/dev/pts/0"
-agy -p "your prompt" --model gemini-3.7-flash-high
+agy -p "your prompt" --model gemini-4-carbon-medium
 ```
 
 `allpapers-search` sets those three itself, so `--gemini-backend agy` needs no
