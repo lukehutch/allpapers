@@ -77,27 +77,16 @@ the same kind of grounded question, using the user's existing Antigravity login
 rather than a billed API key. `allpapers-search` calls it as
 
 ```bash
-agy -p "<the same grounded-search prompt> <query>" --model gemini-4-carbon-medium
+agy -p "<the same grounded-search prompt> <query>" --model gemini-4-neon-high
 ```
 
-`gemini-4-carbon-medium` is the default since 2026-11-17 (the author's choice;
-`gemini-3.7-flash-high` is no longer offered). `ALLPAPERS_AGY_MODEL` overrides it.
+`gemini-4-neon-high` is the default since 2026-11-18 (the author's choice; before it
+`gemini-4-carbon-medium`). `ALLPAPERS_AGY_MODEL` overrides it.
 
-**It hangs if you run it plainly from a script.** `agy` asks gnome-keyring for its
-stored credentials; the unlock dialog takes the terminal and the run blocks
-forever with no output at all. Presenting the shell as a remote SSH session with
-no display makes it fall back to its own token store:
-
-```bash
-export DISPLAY=""
-export SSH_CLIENT="127.0.0.1 12345 22"
-export SSH_TTY="/dev/pts/0"
-agy -p "your prompt" --model gemini-4-carbon-medium
-```
-
-`allpapers-search` sets all three in the child environment, so
-`--gemini-backend agy` needs nothing from you. **Apply the same three exports to
-any other `agy` call you make from a script.**
+`agy` would hang on the gnome-keyring unlock dialog; on this machine
+`~/bin/agy`, first on PATH, sets the variables that prevent it, so run `agy`
+plainly. `allpapers-search` also sets them in the child environment, for machines
+without the wrapper (README.md, "Running `agy` from a script").
 
 The tradeoff: `agy` returns prose, not structured grounding metadata. There is no
 `webSearchQueries` list and no citation array — the URLs are parsed back out of

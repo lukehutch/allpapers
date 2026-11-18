@@ -193,10 +193,10 @@ GEMINI_PROMPT = (
     "Request: ")
 
 
-# gemini-4-carbon-medium is the default since 2026-11-17 (the author's choice);
-# gemini-3.7-flash-high, the earlier default, is no longer offered. An unknown
+# gemini-4-neon-high is the default since 2026-11-18 (the author's choice); before
+# it, gemini-4-carbon-medium. gemini-3.7-flash-high is no longer offered. An unknown
 # model makes agy exit 1 with its list of models, which is printed as the failure.
-AGY_MODEL = os.getenv("ALLPAPERS_AGY_MODEL", "gemini-4-carbon-medium")
+AGY_MODEL = os.getenv("ALLPAPERS_AGY_MODEL", "gemini-4-neon-high")
 
 # agy asks gnome-keyring for its stored credentials, and the unlock dialog steals
 # the terminal — the run then blocks forever with no output. Presenting as a

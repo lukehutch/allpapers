@@ -144,10 +144,17 @@ Re-run the removal after updating paperclip if you want it gone for good.
 
 ### Running `agy` from a script
 
-`agy` asks gnome-keyring for its stored credentials, and on a desktop session the
-unlock dialog takes the terminal — the command then blocks with no output and no
-prompt. Presenting the session as a remote login with no display makes it use its
-own token store instead:
+**Symptom.** When Gemini is queried through `agy`, a window pops up asking the
+user to unlock their login keyring. Run from a script, the call then blocks with
+no output until someone answers the dialog. `agy` asks gnome-keyring for its
+stored credentials; on many Linux desktops gnome-keyring is also the SSH agent,
+and the request opens the unlock dialog. This is
+[antigravity-cli issue #547](https://github.com/google-antigravity/antigravity-cli/issues/547),
+open with no fix as of 2026-11-18. `unset SSH_AUTH_SOCK` and the gemini-cli
+file-storage variables suggested there did not stop the dialog on Fedora 44.
+
+**Fix.** Present the session as a remote login with no display, and `agy` uses
+its own token store instead:
 
 ```bash
 export DISPLAY=""
@@ -156,8 +163,28 @@ export SSH_TTY="/dev/pts/0"
 agy
 ```
 
-`allpapers-search` sets those three itself whenever it shells out to `agy`, so
-this matters only when you run `agy` by hand.
+`allpapers-search` sets those three itself whenever it shells out to `agy`. For
+every other call, install a wrapper named `agy` in a directory that comes before
+the real `agy` on `PATH`. The real binary is in `~/.local/bin`, and agy's updater
+rewrites that file, so put the wrapper in `~/bin`:
+
+```sh
+#!/bin/sh
+# ~/bin/agy: stops agy from opening the gnome-keyring unlock dialog
+# (antigravity-cli issue #547).
+export DISPLAY=""
+export SSH_CLIENT="127.0.0.1 12345 22"
+export SSH_TTY="/dev/pts/0"
+exec "$HOME/.local/bin/agy" "$@"
+```
+
+```bash
+chmod +x ~/bin/agy
+echo 'export PATH="$HOME/bin:$PATH"' >> ~/.bashrc     # and ~/.profile
+```
+
+Check with `command -v agy`, which must print `~/bin/agy`. Shells started before
+the change still find the real binary; call `~/bin/agy` by full path there.
 
 ## Configuration
 
