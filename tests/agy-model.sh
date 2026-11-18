@@ -32,7 +32,7 @@ out=$(ALLPAPERS_AGY_MODEL=other-model STUB_AGY_FAIL=1 run --json)
 expect "other model, agy fails, --json" '"model": "other-model"' "$out"
 
 out=$(env -u ALLPAPERS_AGY_MODEL STUB_AGY_FAIL=1 "$search" --gemini-only --gemini-backend agy "a query" 2>&1)
-expect "default model, agy fails" "--- Gemini grounded web search (gemini-4-neon-high) ---" "$out"
+expect "default model, agy fails" "--- Gemini grounded web search (gemini-4-neon-medium) ---" "$out"
 
 echo "failed: $fails"
 [ "$fails" -eq 0 ]

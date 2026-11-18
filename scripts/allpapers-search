@@ -193,10 +193,11 @@ GEMINI_PROMPT = (
     "Request: ")
 
 
-# gemini-4-neon-high is the default since 2026-11-18 (the author's choice); before
+# gemini-4-neon-medium is the default since 2026-11-18 (the author's choice: on one test
+# query it answered in 204 s, neon-high in 651 s and carbon-medium in 449 s); before
 # it, gemini-4-carbon-medium. gemini-3.7-flash-high is no longer offered. An unknown
 # model makes agy exit 1 with its list of models, which is printed as the failure.
-AGY_MODEL = os.getenv("ALLPAPERS_AGY_MODEL", "gemini-4-neon-high")
+AGY_MODEL = os.getenv("ALLPAPERS_AGY_MODEL", "gemini-4-neon-medium")
 
 # agy asks gnome-keyring for its stored credentials, and the unlock dialog steals
 # the terminal — the run then blocks forever with no output. Presenting as a
@@ -431,7 +432,7 @@ def main() -> int:
                          "Google Cloud account); agy = the Antigravity CLI, "
                          "which uses your Google account sign-in and no key; "
                          "auto = api if a key is configured, else agy (default)")
-    ap.add_argument("--timeout", type=int, default=300)
+    ap.add_argument("--timeout", type=int, default=600)
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args()
 

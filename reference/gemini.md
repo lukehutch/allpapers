@@ -77,10 +77,11 @@ the same kind of grounded question, using the user's existing Antigravity login
 rather than a billed API key. `allpapers-search` calls it as
 
 ```bash
-agy -p "<the same grounded-search prompt> <query>" --model gemini-4-neon-high
+agy -p "<the same grounded-search prompt> <query>" --model gemini-4-neon-medium
 ```
 
-`gemini-4-neon-high` is the default since 2026-11-18 (the author's choice; before it
+`gemini-4-neon-medium` is the default since 2026-11-18 (the author's choice; on one test
+query it answered in 204 s, `gemini-4-neon-high` in 651 s; before it
 `gemini-4-carbon-medium`). `ALLPAPERS_AGY_MODEL` overrides it.
 
 `agy` would hang on the gnome-keyring unlock dialog; on this machine

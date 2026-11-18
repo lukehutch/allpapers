@@ -264,7 +264,7 @@ that forces a search, or use the corpus.
 The `agy` route matters because a Gemini API key bills a Google Cloud account —
 Antigravity or Gemini subscription credits do **not** cover it. A user who has
 signed into `agy` already has grounded Google search with nothing more to pay.
-The model is `gemini-4-neon-high` (override with `ALLPAPERS_AGY_MODEL`).
+The model is `gemini-4-neon-medium` (override with `ALLPAPERS_AGY_MODEL`).
 
 `agy` would hang on the gnome-keyring unlock dialog, but on this machine
 `~/bin/agy` is a wrapper, first on PATH, that sets the variables to prevent it, so
