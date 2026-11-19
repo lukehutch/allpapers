@@ -102,5 +102,11 @@ case "$kind" in
       exit 1 ;;
 esac
 
-[ "$keep" = 1 ] || rm -f "$payload"
+if [ "$keep" != 1 ]; then
+  if [ -z "$payload" ]; then
+    echo "arxiv-source: internal error: payload path is empty; nothing deleted" >&2
+    exit 1
+  fi
+  rm -f "$payload"
+fi
 echo "$outdir"
