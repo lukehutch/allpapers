@@ -159,7 +159,9 @@ the `url`, not from the `DOI` field.
 
 ## Europe PMC — the best JATS XML source
 
-Search: `https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=…&format=json&resultType=core`
+Search: `https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=…&format=json&resultType=core`.
+`allpapers-search --europepmc` runs this search; its query fields, source counts
+and preprint coverage are in `biomed.md`.
 
 The `core` result type returns `fullTextUrlList.fullTextUrl[]`, each entry
 tagged with `availability` ("Open access" / "Subscription required"),
@@ -375,7 +377,7 @@ key; `allpapers-setup` stores both.
 | Source | Covers | Size (2026-10-06) and limit | Call | What comes back |
 |---|---|---|---|---|
 | HAL | French institutional deposits, all fields | 4,685,553 records, 1,804,987 with a file; no published limit | `https://api.archives-ouvertes.fr/search/?q=doiId_s:"<doi>"&fl=halId_s,title_s,fileMain_s` | `fileMain_s` is the PDF; the LIGO detection paper (`10.1103/PhysRevLett.116.061102`) came back as `in2p3-01273200` with its PDF |
-| bioRxiv / medRxiv | life-science preprints | 353,342 + 90,607 papers (486,141 + 112,360 versions); no published limit | `https://api.biorxiv.org/details/biorxiv/<doi>` (`medrxiv` for the other) | one row per version, with a `jatsxml` URL and `published`, the journal DOI or `NA`. paperclip already mirrors these servers; use the API for the version history and the journal DOI |
+| bioRxiv / medRxiv | life-science preprints | 353,342 + 90,607 papers (486,141 + 112,360 versions); no published limit | `https://api.biorxiv.org/details/biorxiv/<doi>` (`medrxiv` for the other) | one row per version, with a `jatsxml` URL and `published`, the journal DOI or `NA`. paperclip already mirrors these servers; use the API for the version history and the journal DOI. `allpapers-locate` does this for any 10.1101 DOI; see `biomed.md` |
 | OSF Preprints | PsyArXiv, SocArXiv and other community preprint servers | 203,028; no published limit | `https://api.osf.io/v2/preprints/?filter[title]=<words>` | JSON:API records with a `primary_file` relationship |
 | Zenodo | datasets, software, reports, some papers | 7,421,011 records, 4,883,931 publications; search 30/min (`x-ratelimit-limit`) | `https://zenodo.org/api/records?q=doi:"<doi>"` | records with their files |
 | OSTI | US Department of Energy reports and papers | 4,886,033 (`X-Total-Count`); no published limit | `https://www.osti.gov/api/v1/records?title=<words>` | records with a `fulltext` link where one exists |

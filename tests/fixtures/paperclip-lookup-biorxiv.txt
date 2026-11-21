@@ -1,0 +1,8 @@
+Found 1 papers
+
+  1. Robust perisomatic GABAergic self-innervation inhibits basket cells in the human and mouse supragranular neocortex
+     Viktor Szegedi *, Melinda Paizs, Judith Baka, Pal Barzo, Gabor Molnar, Gabor Tamas, Karri Lamsa *
+     fb37af04-6c0e-1014-9fac-9ce395c656a4 · bioRxiv · 2019-09-06
+     https://doi.org/10.1101/760983
+
+[17ms]

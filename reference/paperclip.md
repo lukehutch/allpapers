@@ -134,7 +134,13 @@ Run `paperclip skill` for the full built-in guide, and
 Every document is a directory: `meta.json`, `content.lines` (full text, one
 numbered line per line), `sections/`, `figures/`, `supplements/`.
 
-ID prefixes `PMC`, `arx_`, `bio_`, `med_`, `fda_`, `tri_`. Paths:
+IDs, as printed on 2026-11-20: `PMC4788143`; `arx_1706.03762`; `bio_18dbbf8171e1`
+and `med_…` in search output, but a UUID (`fb37af04-6c0e-1014-9fac-9ce395c656a4`)
+for the same bioRxiv and medRxiv papers in `lookup` output; a bare number for a
+PubMed abstract record (`88060771`, which is not its PMID; `meta.json` has the
+PMID); `fda_`, `tri_` and `US-…`-style IDs elsewhere. A result's ID line may end
+in `· 280 citations`. `-s abstracts` held about 84% of a PubMed sample; see
+`biomed.md`. Paths:
 `/papers/`, `/fda/{us,jp,eu}`, `/trials/{us,cn,jp,eu,intl}`, `/proteins/`,
 `/patents/`, `/clipboard/` (your uploads), `/.gxl/` (the only writable path).
 

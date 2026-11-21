@@ -394,8 +394,8 @@ Eight tools plus a set of reference documents:
 |---|---|
 | `scripts/allpapers-install` | Link the checkout into the skills directory of every agent CLI on this machine, and re-check it later — `--check`, `--uninstall`, `--remove-superseded` |
 | `scripts/allpapers-setup` | First-run credential setup and status check. Asks once, stores in `~/.config/allpapers/config.json`. |
-| `scripts/allpapers-locate` | Queries paperclip, arXiv, Unpaywall, OpenAlex, CORE and Europe PMC **concurrently** for one paper and prints every free full-text location, ranked most-parseable first. |
-| `scripts/allpapers-search` | Keyword (BM25), semantic (vector), hybrid and analogical search over paperclip's 11.7M full texts, optionally alongside Gemini grounded web search — through the Gemini API or, with `--gemini-backend agy`, through the Antigravity CLI and no API key. |
+| `scripts/allpapers-locate` | Queries paperclip, arXiv, Unpaywall, OpenAlex, CORE, Europe PMC, bioRxiv/medRxiv and dblp **concurrently** for one paper and prints every free full-text location, ranked most-parseable first. |
+| `scripts/allpapers-search` | Keyword (BM25), semantic (vector), hybrid and analogical search over paperclip's 11.7M full texts, optionally alongside PubMed (`--pubmed`), Europe PMC (`--europepmc`) and Gemini grounded web search — through the Gemini API or, with `--gemini-backend agy`, through the Antigravity CLI and no API key. |
 | `scripts/arxiv-source` | Downloads an arXiv paper's submitted source into a `mktemp` directory and unpacks it, handling all three payload shapes arXiv serves. |
 | `scripts/allpapers-bibtex` | Builds one composite BibTeX entry by merging INSPIRE-HEP, Crossref, DataCite, arXiv, PubMed and Scholar field by field, then normalizing it. |
 | `scripts/allpapers-fetch` | Fetches source *and* PDF into `./verification/source/<citationKey>/` in the current directory, and writes the `./verification/bib.md` record — staged first, promoted or rejected after you have read the paper. `--into` moves that directory, `--no-record` suppresses it entirely. |
@@ -687,6 +687,7 @@ and 3 without re-running anything.
 | `reference/unpaywall.md` | Unpaywall API, response shape, the broken search endpoint |
 | `reference/search.md` | Ranking modes, result limits, sort order, how to word a query |
 | `reference/other-indices.md` | OpenAlex, Crossref, Europe PMC, Semantic Scholar, NCBI, DOAJ, OpenAIRE, field and regional repositories, the Wayback Machine |
+| `reference/biomed.md` | PubMed, Europe PMC search, bioRxiv/medRxiv, ClinicalTrials.gov, PubTator3: coverage measured against paperclip, query syntax, what is unreachable |
 | `reference/scholar.md` | Google Scholar URL patterns, the silent block, CAPTCHA handling, SerpApi |
 | `reference/gemini.md` | Gemini grounded search: the API and `agy` backends, request shapes, citation extraction |
 | `reference/bibtex.md` | The composite merge, the per-field trust order, every normalization applied |

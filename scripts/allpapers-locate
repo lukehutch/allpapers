@@ -608,6 +608,43 @@ def probe_core(ids: Ids) -> list[dict]:
     return out
 
 
+def probe_biorxiv(ids: Ids) -> list[dict]:
+    """bioRxiv and medRxiv, through api.biorxiv.org, for a 10.1101 DOI.
+
+    The details endpoint gives the JATS XML of the newest version and the DOI of
+    the journal article the preprint became, if any. Cold Spring Harbor's own
+    journals (Genome Research, 10.1101/gr.…) share the prefix and get
+    "DOI not recognizable", an empty list. The JATS URL answers 301, and on
+    2026-11-20 one recent post's URL answered 404, so it is checked before it is
+    listed. The API has no keyword search; that goes through paperclip
+    (-s biorxiv, -s medrxiv) or Europe PMC (SRC:PPR).
+    """
+    if not (ids.doi or "").lower().startswith("10.1101/"):
+        return []
+    for server in ("biorxiv", "medrxiv"):
+        r = get(f"https://api.biorxiv.org/details/{server}/{ids.doi}")
+        if r is None or not r.ok:
+            continue
+        rows = r.json().get("collection") or []
+        if not rows:
+            continue
+        last = max(rows, key=lambda x: int(x.get("version") or 0))
+        name = last.get("server") or server
+        out = []
+        xml = last.get("jatsxml")
+        if xml:
+            h = head(xml)
+            if h is None or h.status_code != 404:
+                out.append(loc(name, "xml", xml,
+                               f"JATS XML of version {last.get('version')} ({last.get('date')})"))
+        pub = last.get("published")
+        if pub and pub != "NA":
+            out.append(loc(name, "html", f"https://doi.org/{pub.lower()}",
+                           f"the published journal version of this preprint: {pub}"))
+        return out
+    return []
+
+
 def probe_europepmc(ids: Ids) -> list[dict]:
     if not ids.pmcid:
         return []
@@ -620,6 +657,26 @@ def probe_europepmc(ids: Ids) -> list[dict]:
             ""),
     ]
     return out
+
+
+# paperclip's document IDs, as measured on 2026-11-20: PMC4788143; arx_1706.03762;
+# bio_18dbbf8171e1 and med_… in search output; a UUID for the same bioRxiv and
+# medRxiv papers in `lookup` output; a bare number (88060771, not the PMID) for the
+# PubMed abstract records; and US-…, EU-… style IDs for trials. Each is the first
+# field of a result's ID line, "<id> · <source> · <date>", which may be followed
+# by "· 280 citations". Anchoring on that line keeps a number or a hex string in
+# a title or snippet from being read as an ID.
+PAPERCLIP_ID = (r"PMC\d+|(?:bio|med|arx)_[\w.\-/]+"
+                r"|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+                r"|\d{5,}|[A-Z]{2}-[\w./-]+")
+PAPERCLIP_IDLINE = re.compile(r"^\s+(" + PAPERCLIP_ID + r")\s*\u00b7\s*([^\u00b7]*?)"
+                              r"\s*\u00b7\s*([\d-]+)\s*(?:\u00b7.*)?$")
+
+
+def paperclip_ids(text: str) -> list[str]:
+    """The document IDs in the text of a paperclip search or lookup, in order, once each."""
+    found = [m.group(1) for line in text.splitlines() if (m := PAPERCLIP_IDLINE.match(line))]
+    return list(dict.fromkeys(found))
 
 
 def probe_paperclip(ids: Ids) -> list[dict]:
@@ -652,15 +709,10 @@ def probe_paperclip(ids: Ids) -> list[dict]:
         out = re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", p.stdout)
         if "No documents found" in out:
             continue
-        found = re.findall(r"(?:PMC\d+|(?:bio|med|arx)_[\w.\-/]+)", out)
+        found = paperclip_ids(out)
         if found:
-            seen, uniq = set(), []
-            for d in found:
-                if d not in seen:
-                    seen.add(d)
-                    uniq.append(d)
             return [loc("paperclip", "text", f"/papers/{d}",
-                        "extracted, line-numbered full text") for d in uniq]
+                        "extracted, line-numbered full text") for d in found]
     return []
 
 
@@ -735,6 +787,7 @@ PROBES = {
     "OpenAlex": probe_openalex,
     "CORE": probe_core,
     "Europe PMC": probe_europepmc,
+    "bioRxiv": probe_biorxiv,
     "dblp": probe_dblp,
 }
 

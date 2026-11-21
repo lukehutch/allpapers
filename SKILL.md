@@ -1,6 +1,6 @@
 ---
 name: allpapers
-description: Find and retrieve the full text of scientific papers from paperclip (which is also a semantic search engine: embedding-based as well as keyword search over 11.7M full texts), arXiv LaTeX source, CORE, Unpaywall, OpenAlex, Europe PMC, Google Scholar, Gemini grounded search, field repositories, public-domain archives (archive.org, Wikisource, Gallica) and shadow libraries (LibGen, Sci-Hub, Sci-Net, Anna's Archive, Z-Library) as a last resort. Use when asked to look up a paper, get its full text, search the literature by keyword or by meaning, find evidence for or against a claim, check what a paper actually says, verify a citation, or build a bibliography. Always prefers parseable text formats over PDF.
+description: Find and retrieve the full text of scientific papers from paperclip (which is also a semantic search engine: embedding-based as well as keyword search over 11.7M full texts), arXiv LaTeX source, CORE, Unpaywall, OpenAlex, Europe PMC (full text, and search of PubMed plus 1.3M preprints), PubMed search (MeSH, publication types), bioRxiv/medRxiv JATS, Google Scholar, Gemini grounded search, field repositories, public-domain archives (archive.org, Wikisource, Gallica) and shadow libraries (LibGen, Sci-Hub, Sci-Net, Anna's Archive, Z-Library) as a last resort. Use when asked to look up a paper, get its full text, search the literature by keyword or by meaning, find evidence for or against a claim, check what a paper actually says, verify a citation, or build a bibliography. Always prefers parseable text formats over PDF.
 ---
 
 # allpapers
@@ -163,7 +163,7 @@ scripts/allpapers-locate "Attention is all you need"   # resolves the title firs
 scripts/allpapers-locate 10.1038/nature14539 --json    # for scripting
 ```
 
-Queries paperclip, arXiv, Unpaywall, OpenAlex, CORE, Europe PMC and dblp at once
+Queries paperclip, arXiv, Unpaywall, OpenAlex, CORE, Europe PMC, bioRxiv/medRxiv and dblp at once
 and ranks every free location it finds by format. Accepts DOIs, arXiv IDs (new and
 old style, with or without a version suffix), PMIDs, PMCIDs, arXiv/DOI URLs, and
 titles. Exit 1 means nothing free was found — the signal to move down to Google
@@ -231,6 +231,28 @@ to 250 for this reason; do not lower it while sweeping.
 **Think about sort order.** `--sort date` is for recency sweeps, not for finding
 the single best source — it discards relevance entirely. It is also incompatible
 with `--min-similarity`. See `reference/search.md`.
+
+### Biomedical search — PubMed, Europe PMC, preprints, trials
+
+```bash
+scripts/allpapers-search --pubmed --europepmc "metformin pancreatic cancer survival"
+scripts/allpapers-search --no-paperclip --pubmed-query \
+  '"Pancreatic Neoplasms"[MeSH] AND "Metformin"[MeSH] AND Meta-Analysis[pt]'
+scripts/allpapers-search --no-paperclip --europepmc-query \
+  'TITLE_ABS:(metformin AND "pancreatic cancer") AND SRC:PPR'
+```
+
+paperclip's `-s abstracts` held about 84% of a PubMed sample, and nothing else
+here searches the 1.29M preprints Europe PMC indexes from Research Square,
+Preprints.org, SSRN and ChemRxiv. `--pubmed` is the only backend that applies
+MeSH and publication types the way a systematic review states them;
+`--europepmc` adds the preprints and section fields (`METHODS:`, `TITLE_ABS:`).
+Each backend reads its own query syntax, so give it its own with
+`--pubmed-query` or `--europepmc-query`. Results merge with paperclip's on DOI,
+PMCID and PMID. For trials use the ClinicalTrials.gov API, not paperclip's
+ranked search, which found 12 of 26 matching trials. Embase, Scopus, Web of
+Science, CINAHL, PsycINFO and Cochrane are not reachable; say so when a review
+needs them. Measurements and recipes: `reference/biomed.md`.
 
 **To find evidence for or against a specific claim, start with `paperclip
 evidence "<claim>"`.** It returns the exact supporting and refuting sentences from
@@ -584,7 +606,7 @@ the material for 1 and 3 without re-running anything.
 | `scripts/allpapers-install` | Link this skill into Claude Code, Codex and Antigravity; `--check` re-verifies an existing install |
 | `scripts/allpapers-setup` | First-run credential setup and status check |
 | `scripts/allpapers-locate` | One paper → every free full-text location, ranked most-parseable first |
-| `scripts/allpapers-search` | Keyword, semantic, hybrid and analogical search, optionally with Gemini grounded web search via the API or `agy` |
+| `scripts/allpapers-search` | Keyword, semantic, hybrid and analogical search, optionally with PubMed, Europe PMC, and Gemini grounded web search via the API or `agy` |
 | `scripts/arxiv-source` | arXiv submitted source → unpacked LaTeX in a temp directory |
 | `scripts/allpapers-mirrors` | Which shadow-library mirrors are usable right now — verifies content, not status |
 | `scripts/allpapers-bibtex` | Composite normalized BibTeX merged across every index that has the work |
@@ -601,6 +623,7 @@ the material for 1 and 3 without re-running anything.
 | `reference/core.md` | CORE API v3, auth, rate limits, data-quality traps |
 | `reference/unpaywall.md` | Unpaywall API, response shape, the broken search endpoint |
 | `reference/other-indices.md` | OpenAlex, Crossref, Europe PMC, Semantic Scholar, NCBI, DOAJ, OpenAIRE, field and regional repositories, the Wayback Machine |
+| `reference/biomed.md` | PubMed, Europe PMC search, bioRxiv/medRxiv, ClinicalTrials.gov, PubTator3: coverage measured against paperclip, query syntax, what is unreachable |
 | `reference/scholar.md` | Google Scholar scraping, the silent block, SerpApi |
 | `reference/dblp.md` | dblp: CS identity resolution, proceedings metadata, BibTeX, its rate limiting |
 | `reference/gemini.md` | Gemini grounded search: the API and `agy` backends, request shapes, citation extraction |

@@ -1,0 +1,26 @@
+Found 2 papers  [s_8dde64d4]
+
+  1. An extensive evaluation of single-cell RNA-Seq contrastive learning generative networks for intrinsic cell-types distribution estimation
+     Ibrahim Alsaggaf, Daniel Buchan, Cen Wan *
+     bio_18dbbf8171e1 · bioRxiv · 2025-09-15 · 0 citations (all versions)
+     Published (2025): https://doi.org/10.1101/2025.09.15.675691
+     Matched: Abstract · cat /papers/bio_18dbbf8171e1/content.lines --lines 1-12
+     "This paper evaluates generative encoder networks from five contrastive learning methods for single-cell RNA-Seq data. Supervised methods outperformed self-supervised ones, with Gaussian noise augmentation showing the best cell-type distribution estimation."
+
+  2. Benchmarking large-scale single-cell RNA-seq analysis
+     Billato, I.; Pages, H.; Carey, V.; Waldron, L.; Sales, G.; Romualdi, C.; Risso, D.
+     bio_1d2304a17b12 · bioRxiv · 2026-10-16 · 3 citations (all versions)
+     Published (2025): https://doi.org/10.1101/2025.10.28.681564
+     Matched: Single-cell RNA-seq Workflow · cat /papers/bio_1d2304a17b12/content.lines --lines 68-72
+     │ Table 1. Adjusted Rand Index (ARI) between the workflow and between single-cell RNA-seq
+     │ dataset. More interesting is the evaluation of the pipelines on the BE1 dataset, in which
+     │ OSCA and scrapper achieve an almost perfect concordance with the ground truth, with an ARI
+     │ of 0.95-0.97, while the other methods stop shy of 0.7 ( Table 1 ). The main reason for this
+     │ difference is the failure to separate two closely related cell lines, A549 and CCL-185-IG,
+     │ which is derived from A549 cells [ 43 ]. From the t-SNE representations it is evident that
+     │ OSCA and scrapper separate the two cell lines in two distinct clusters, while Seurat, Scanpy
+     │ and RAPIDS achieve only partial separation ( Fig. 6a-e ). Fig. …
+     "Five scRNA-seq analysis frameworks were benchmarked for scalability, efficiency, and accuracy. GPU acceleration significantly speeds up analysis, while OSCA and scrapper offer the highest clustering accuracy."
+
+[1.1s, saved to s_8dde64d4]
+[1.1s, saved to s_8dde64d4]

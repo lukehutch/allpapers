@@ -33,6 +33,11 @@ Two backends serve that channel and `--gemini-backend` picks between them:
     agy   the Antigravity CLI, which signs in with your ordinary Google account.
           No API key, no cloud billing, and the same Google Search behind it.
     auto  api when a key is configured, otherwise agy. The default.
+
+`--pubmed` and `--europepmc` add PubMed (esearch, Best Match, MeSH and [pt]
+tags) and Europe PMC (PubMed plus 1.29M preprints, section fields). Each reads
+its own query syntax; `--pubmed-query` and `--europepmc-query` give it one.
+Results from every backend merge on DOI, PMCID and PMID. See reference/biomed.md.
 """
 from __future__ import annotations
 
@@ -76,8 +81,7 @@ SETID = re.compile(r"\[(s_[0-9a-f]+)\]")
 # every other field is indented. Treating any following line as the authors
 # splits two-line titles and files the tail of the title as an author list.
 RESULT = re.compile(r"^ {1,3}(\d+)\.\s+(.*)$")
-IDLINE = re.compile(r"^\s+((?:PMC\d+|(?:bio|med|arx)_[\w.\-/]+|[A-Z]{2}-[\w./-]+))"
-                    r"\s*\u00b7\s*([^\u00b7]*?)\s*\u00b7\s*([\d-]+)\s*$")
+IDLINE = L.PAPERCLIP_IDLINE   # the ID forms are listed where it is defined
 SETID_ONLY = re.compile(r"^\[[\d.]+m?s, saved to s_[0-9a-f]+\]")
 
 
@@ -139,6 +143,11 @@ def run_paperclip(query: str, ranking: str, args) -> tuple[list, str, str]:
     if p.returncode != 0:
         return [], "", f"{ranking}: {(err or out).strip().splitlines()[0][:150]}"
 
+    return (*parse_search_output(out, ranking), "")
+
+
+def parse_search_output(out: str, ranking: str) -> tuple[list, str]:
+    """Parse the text of one `paperclip search` run into (hits, result-set id)."""
     setid = (SETID.search(out) or [None, ""])[1]
 
     hits, cur = [], None
@@ -180,7 +189,137 @@ def run_paperclip(query: str, ranking: str, args) -> tuple[list, str, str]:
             cur["authors"] = stripped
     close(cur)
 
-    return hits, setid, ""
+    return hits, setid
+
+
+# Europe PMC and PubMed, searched with their own query languages. paperclip does
+# not replace either. Measured 2026-11-20: paperclip's PubMed abstract records
+# (-s abstracts) held 42 of a 50-PMID sample, missing mostly very old and very
+# new records; Europe PMC also indexes 1.29 million preprints (Research Square
+# 499k, Preprints.org 135k, SSRN, ChemRxiv besides bioRxiv and medRxiv) that
+# nothing else here searches; and only PubMed applies MeSH explosion and
+# publication types the way a systematic review states them (MeSH Pancreatic
+# Neoplasms AND MeSH Metformin: PubMed 210 records, Europe PMC's MESH: field 50).
+EPMC_SEARCH = "https://www.ebi.ac.uk/europepmc/webservices/rest/search"
+EUTILS = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
+
+
+def _get_json(method: str, url: str, **kw):
+    """One request through allpapers-locate's send(), retried once on HTTP 429.
+    Europe PMC answered 429 after about a dozen requests in a few seconds."""
+    import time
+    for attempt in (0, 1):
+        r = L.send(method, url, **kw)
+        if r is None:
+            raise RuntimeError("no response (network error or timeout)")
+        if r.status_code == 429 and attempt == 0:
+            time.sleep(3)
+            continue
+        if not r.ok:
+            raise RuntimeError(f"HTTP {r.status_code}")
+        return r.json()
+
+
+def _year_range(args) -> tuple[str, str]:
+    if args.year:
+        return args.year, args.year
+    return args.year_min or "", args.year_max or ""
+
+
+def run_europepmc(query: str, args) -> tuple[list, int]:
+    """Europe PMC search: PubMed, PMC, preprints, Agricola, patents and more.
+    The query is passed through in Europe PMC syntax (TITLE_ABS:, METHODS:,
+    SRC:PPR, PUBLISHER:"Research Square", MESH:, HAS_FT:Y). Returns (hits, total)."""
+    lo, hi = _year_range(args)
+    if lo or hi:
+        query = f"({query}) AND PUB_YEAR:[{lo or 1000} TO {hi or 3000}]"
+    params = {"query": query, "format": "json", "resultType": "lite",
+              "pageSize": min(args.limit, 1000), "cursorMark": "*"}
+    if args.sort == "date":
+        params["sort"] = "P_PDATE_D desc"
+    hits, total = [], 0
+    while len(hits) < args.limit:
+        d = _get_json("GET", EPMC_SEARCH, params=params)
+        total = d.get("hitCount", 0)
+        page = d.get("resultList", {}).get("result", [])
+        for r in page:
+            src = r.get("source", "")
+            pub = (r.get("bookOrReportDetails") or {}).get("publisher", "")
+            doi = (r.get("doi") or "").lower()
+            hits.append({
+                "rank": len(hits) + 1, "title": (r.get("title") or "").strip(),
+                "authors": r.get("authorString", ""),
+                "id": f"PMID:{r['pmid']}" if r.get("pmid") else r.get("id", ""),
+                "source": f"{src} {pub or r.get('journalTitle') or ''}".strip(),
+                "date": r.get("firstPublicationDate") or r.get("pubYear", ""),
+                "url": f"https://doi.org/{doi}" if doi else
+                       f"https://europepmc.org/article/{src}/{r.get('id', '')}",
+                "snippet": "", "doi": doi, "pmid": r.get("pmid", ""),
+                "pmcid": r.get("pmcid", ""), "found_by": ["europepmc"]})
+        nxt = d.get("nextCursorMark")
+        if not page or not nxt or nxt == params["cursorMark"]:
+            break
+        params["cursorMark"] = nxt
+    return hits[:args.limit], total
+
+
+def run_pubmed(query: str, args) -> tuple[list, int]:
+    """PubMed esearch + esummary. The query is passed through in PubMed syntax
+    ("Metformin"[MeSH], Randomized Controlled Trial[pt], [tiab]); PubMed maps
+    plain words onto MeSH itself. Order is Best Match, or publication date with
+    --sort date. --year-min/--year-max filter on [pdat], which also matches the
+    electronic date: PMID 42846986 (print 2026 Sep, epub 2025 Dec 16) passes a
+    2024-2025 filter and is shown with its print date. Returns (hits, total)."""
+    auth = {"api_key": L.NCBI_KEY or None, "email": L.EMAIL or None, "tool": "allpapers"}
+    params = {"db": "pubmed", "term": query, "retmode": "json",
+              "retmax": min(args.limit, 9999),
+              "sort": "pub_date" if args.sort == "date" else "relevance", **auth}
+    lo, hi = _year_range(args)
+    if lo or hi:
+        params.update(datetype="pdat", mindate=lo or "1000", maxdate=hi or "3000")
+    es = _get_json("GET", f"{EUTILS}/esearch.fcgi", params=params)["esearchresult"]
+    pmids, total = es.get("idlist", []), int(es.get("count", 0))
+    hits = []
+    for i in range(0, len(pmids), 200):
+        batch = pmids[i:i + 200]
+        res = _get_json("POST", f"{EUTILS}/esummary.fcgi",
+                        data={"db": "pubmed", "id": ",".join(batch),
+                              "retmode": "json", **{k: v for k, v in auth.items() if v}}
+                        ).get("result", {})
+        for pmid in batch:
+            r = res.get(pmid) or {}
+            aid = {a.get("idtype"): a.get("value", "") for a in r.get("articleids", [])}
+            doi = aid.get("doi", "").lower()
+            hits.append({
+                "rank": len(hits) + 1, "title": (r.get("title") or "").strip(),
+                "authors": ", ".join(a.get("name", "") for a in r.get("authors", [])),
+                "id": f"PMID:{pmid}",
+                "source": r.get("source", ""), "date": r.get("pubdate", ""),
+                "url": f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/",
+                "snippet": "", "doi": doi, "pmid": pmid,
+                "pmcid": aid.get("pmc", ""), "found_by": ["pubmed"]})
+    return hits, total
+
+
+def merge_keys(h: dict) -> list[str]:
+    """Every key a hit can be matched on across backends. paperclip, Europe PMC
+    and PubMed each number documents their own way, so the shared identifiers
+    (DOI, PMCID, PMID) are compared first and the title last."""
+    keys = []
+    doi = h.get("doi") or ""
+    if not doi and (m := L.DOI_RE.search(h.get("url") or "")):
+        doi = m.group(1).lower()
+    if doi:
+        keys.append("doi:" + doi)
+    pmcid = h.get("pmcid") or (h["id"] if h["id"].startswith("PMC") else "")
+    if pmcid:
+        keys.append("pmc:" + pmcid)
+    if h.get("pmid"):
+        keys.append("pmid:" + h["pmid"])
+    if h["id"] and not keys:
+        keys.append("id:" + h["id"])
+    keys.append("title:" + L._norm_title(h["title"]))
+    return keys
 
 
 GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta"
@@ -392,7 +531,9 @@ def main() -> int:
         epilog="Modes: keyword=bm25 (exact terms), semantic=vector (paraphrase), "
                "hybrid=both (default), analogical=same method elsewhere, "
                "all=run every ranker and merge.")
-    ap.add_argument("query")
+    ap.add_argument("query", nargs="?", default="",
+                    help="the search; optional only when every backend run has "
+                         "its own --europepmc-query or --pubmed-query")
     ap.add_argument("--mode", default="hybrid", choices=sorted(MODE_RANKERS),
                     help="which retrieval to run (default: hybrid)")
     ap.add_argument("-n", "--limit", type=int, default=250,
@@ -432,6 +573,20 @@ def main() -> int:
                          "Google Cloud account); agy = the Antigravity CLI, "
                          "which uses your Google account sign-in and no key; "
                          "auto = api if a key is configured, else agy (default)")
+    ap.add_argument("--europepmc", action="store_true",
+                    help="also search Europe PMC (PubMed, PMC, 1.29M preprints); "
+                         "the query is read in Europe PMC syntax")
+    ap.add_argument("--pubmed", action="store_true",
+                    help="also search PubMed (Best Match, MeSH, [pt] tags); the "
+                         "query is read in PubMed syntax")
+    ap.add_argument("--europepmc-query", metavar="Q",
+                    help="Europe PMC's own query, in place of QUERY (implies "
+                         "--europepmc); the two syntaxes differ, e.g. "
+                         "TITLE_ABS:(...) here, [tiab] in PubMed")
+    ap.add_argument("--pubmed-query", metavar="Q",
+                    help="PubMed's own query, in place of QUERY (implies --pubmed)")
+    ap.add_argument("--no-paperclip", action="store_true",
+                    help="skip paperclip; run only the other backends asked for")
     ap.add_argument("--timeout", type=int, default=600)
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args()
@@ -441,11 +596,21 @@ def main() -> int:
               file=sys.stderr)
         return 2
 
-    rankers = [] if args.gemini_only else MODE_RANKERS[args.mode]
+    rankers = [] if args.gemini_only or args.no_paperclip else MODE_RANKERS[args.mode]
+    apis = {} if args.gemini_only else {
+        name: (fn, q or args.query) for name, fn, on, q in (
+            ("europepmc", run_europepmc, args.europepmc, args.europepmc_query),
+            ("pubmed", run_pubmed, args.pubmed, args.pubmed_query)) if on or q}
     if rankers and not shutil.which("paperclip"):
         print("allpapers-search: paperclip is not installed — "
               "curl -fsSL https://paperclip.gxl.ai/install.sh | bash", file=sys.stderr)
         rankers = []
+
+    if not args.query and (rankers or args.gemini or args.gemini_only
+                           or any(not q for _, q in apis.values())):
+        ap.error("a QUERY is needed for every backend without its own query")
+    if not (rankers or apis or args.gemini or args.gemini_only):
+        ap.error("nothing to search: --no-paperclip with no other backend")
 
     key, backend = "", ""
     if args.gemini or args.gemini_only:
@@ -485,9 +650,32 @@ def main() -> int:
     sets: dict = {}
     gem: dict = {}
 
-    with cf.ThreadPoolExecutor(max_workers=len(rankers) + 1) as pool:
+    totals: dict = {}
+    alias: dict = {}
+
+    def add(h, by):
+        keys = merge_keys(h)
+        k = next((alias[x] for x in keys if x in alias), None)
+        if k is None:
+            h["best_rank"] = h["rank"]
+            merged[keys[0]] = h
+            order.append(keys[0])
+            k = keys[0]
+        else:
+            m = merged[k]
+            if by not in m["found_by"]:
+                m["found_by"].append(by)
+            m["best_rank"] = min(m["best_rank"], h["rank"])
+            for f in ("doi", "pmid", "pmcid", "authors", "url"):
+                if h.get(f) and not m.get(f):
+                    m[f] = h[f]
+        for x in keys:
+            alias.setdefault(x, k)
+
+    with cf.ThreadPoolExecutor(max_workers=len(rankers) + len(apis) + 1) as pool:
         futures = {pool.submit(run_paperclip, args.query, rk, args): rk
                    for rk in rankers}
+        afutures = {pool.submit(fn, q, args): name for name, (fn, q) in apis.items()}
         gfut = None
         if backend == "api":
             gfut = pool.submit(run_gemini, args.query, key, args.timeout)
@@ -506,15 +694,16 @@ def main() -> int:
             if setid:
                 sets[rk] = setid
             for h in hits:
-                k = h["id"] or L._norm_title(h["title"])
-                if k in merged:
-                    if rk not in merged[k]["found_by"]:
-                        merged[k]["found_by"].append(rk)
-                    merged[k]["best_rank"] = min(merged[k]["best_rank"], h["rank"])
-                else:
-                    h["best_rank"] = h["rank"]
-                    merged[k] = h
-                    order.append(k)
+                add(h, rk)
+        for fut in cf.as_completed(afutures):
+            name = afutures[fut]
+            try:
+                hits, totals[name] = fut.result()
+            except Exception as e:                      # noqa: BLE001
+                notes.append(f"{name}: {e}")
+                continue
+            for h in hits:
+                add(h, name)
         if gfut:
             try:
                 gem = gfut.result()
@@ -531,14 +720,18 @@ def main() -> int:
     if args.json:
         print(json.dumps({"query": args.query, "mode": args.mode,
                           "limit": args.limit, "sort": args.sort,
-                          "result_sets": sets, "notes": notes,
+                          "result_sets": sets, "notes": notes, "totals": totals,
                           "results": rows, "gemini": gem}, indent=2))
         return 0 if rows or gem.get("text") or gem.get("citations") else 1
 
     if rows:
         multi = sum(1 for h in rows if len(h["found_by"]) > 1)
-        print(f"{len(rows)} papers  ({args.mode}, -n {args.limit}, sort {args.sort})"
-              + (f", {multi} found by more than one ranker" if len(rankers) > 1 else ""))
+        what = ", ".join(([f"paperclip {args.mode}"] if rankers else []) + list(apis))
+        print(f"{len(rows)} papers  ({what}, -n {args.limit}, sort {args.sort})"
+              + (f", {multi} found by more than one ranker or backend"
+                 if len(rankers) + len(apis) > 1 else ""))
+        for name, t in totals.items():
+            print(f"  {name}: {t} matching records in all, first {min(t, args.limit)} taken")
         print()
         for h in rows:
             by = "+".join(h["found_by"])
@@ -552,8 +745,8 @@ def main() -> int:
             print("\n  result sets — narrow inside one instead of re-querying:")
             for rk, sid in sets.items():
                 print(f"    {rk:<11} {sid}   paperclip grep PATTERN --from {sid}")
-    elif rankers:
-        print("no paperclip results")
+    elif rankers or apis:
+        print("no results" + "".join(f"; {n}: {t} records" for n, t in totals.items()))
 
     for n in notes:
         print(f"note: {n}", file=sys.stderr)

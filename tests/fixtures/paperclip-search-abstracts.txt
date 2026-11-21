@@ -1,0 +1,25 @@
+Found 3 papers  [s_c947324a]
+
+  1. Metformin Use Is Associated with Better Survival of Diabetic Patients with Pancreatic Cancer
+     88060771 · pubmed · 2012 · 280 citations
+     https://doi.org/10.1158/1078-0432.ccr-11-2994
+     Matched: Abstract · cat /papers/88060771/content.lines --lines 1
+     "PURPOSE: Accumulating evidence suggests that metformin has antitumor activity. The aim of this study was to determine whether metformin use has a survival benefit in patients with pancreatic cancer. E"
+
+  2. Effect of Metformin Use on Survival in Resectable Pancreatic Cancer: A Single-Institution Experience and Review of the Literature
+     Chenwi M. Ambe; Amit Mahipal; Jimmy Fulp; Lu Chen; Mokenge P. Malafa
+     PMC4788143 · PMC · 2016-03-11 · 34 citations
+     https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4788143/
+     Matched: Abstract · cat /papers/PMC4788143/content.lines --lines 1-7
+     "This study examined metformin use and survival in diabetic patients with resected pancreatic cancer. Metformin use was associated with improved survival, though not statistically significant."
+
+  3. Impact of Metformin on Advanced Pancreatic Cancer Survival: Too Little, Too Late?
+     61898723 · pubmed · 2016 · 8 citations
+     https://doi.org/10.1158/1078-0432.ccr-15-2494
+     Matched: Abstract · cat /papers/61898723/content.lines --lines 1
+     "Metformin offers no survival advantage in patients with metastatic pancreatic cancer. Despite promising experimental evidence suggesting an antitumor effect of metformin, its impact on the survival of"
+
+[896ms, saved to s_c947324a]
+
+💡 Extract data across these results with: map --from s_c947324a "your question"
+[896ms, saved to s_c947324a]
