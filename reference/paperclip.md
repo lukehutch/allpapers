@@ -303,7 +303,9 @@ computer-science claim that self-attention suffices for sequence transduction.
   `verification.md`.
 - **Counts change over time.** The same metformin request gave 254 passages split 87,
   71 and 96 on 2026-11-02, and 255 split 78, 68 and 109 on 2026-11-05, with the same
-  `model_version` on both days. CLI and REST agreed on each day.
+  `model_version` on both days. CLI and REST agreed on each day. Reported to GXL
+  on 2026-11-20; no reply yet. Until it is explained, record the date with any
+  count you quote.
 - **Do not count votes.** `counts` are passages, not papers. Metformin scored 87 to
   71 in favor, yet the top two "refutes" items are randomized trials that found no
   benefit. One meta-analysis, PMC5517652, appears on **both** sides: it reports a
