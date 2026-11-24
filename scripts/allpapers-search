@@ -143,7 +143,15 @@ def run_paperclip(query: str, ranking: str, args) -> tuple[list, str, str]:
     if p.returncode != 0:
         return [], "", f"{ranking}: {(err or out).strip().splitlines()[0][:150]}"
 
-    return (*parse_search_output(out, ranking), "")
+    # paperclip 0.8.26 exits 0 when its server gives up ("[stderr] search:
+    # search took longer than 4.5 s; retry or narrow the query") and prints no
+    # hits. Without this note that reads as an empty result, not a failure.
+    failed = [ln.strip() for ln in (out + "\n" + err).splitlines()
+              if ln.lstrip().startswith("[stderr]")]
+    hits, setid = parse_search_output(out, ranking)
+    if failed and not hits:
+        return [], "", f"{ranking}: paperclip failed, not an empty result: {failed[0][:150]}"
+    return hits, setid, ""
 
 
 def parse_search_output(out: str, ranking: str) -> tuple[list, str]:
